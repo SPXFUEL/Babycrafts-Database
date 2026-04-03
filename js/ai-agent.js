@@ -4,7 +4,11 @@
  */
 
 const AIAgent = {
-    context: null,
+    context: {
+        orders: [],
+        todos: [],
+        currentDate: new Date()
+    },
     
     initialize() {
         this.context = {
