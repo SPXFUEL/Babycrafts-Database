@@ -174,6 +174,9 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <div id="syncStatus" class="w-2 h-2 rounded-full bg-green-500 pulse-ring"></div>
+                    <button onclick="App.showAIAssistant()" class="p-2 bg-purple-100 text-purple-700 rounded-xl hover:bg-purple-200 transition-colors" title="AI Assistent">
+                        <i data-lucide="bot" class="w-6 h-6"></i>
+                    </button>
                     <button onclick="App.showNewOrderForm()" class="p-2 bg-primary-100 text-primary-700 rounded-xl hover:bg-primary-200 transition-colors">
                         <i data-lucide="plus" class="w-6 h-6"></i>
                     </button>
@@ -244,6 +247,10 @@
             <button onclick="App.navigate('dashboard'); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors">
                 <i data-lucide="layout-dashboard" class="w-5 h-5 text-gray-400"></i>
                 <span>Dashboard</span>
+            </button>
+            <button onclick="App.showAIAssistant(); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-purple-50 transition-colors">
+                <i data-lucide="bot" class="w-5 h-5 text-purple-500"></i>
+                <span>AI Assistent</span>
             </button>
             <button onclick="App.navigate('schema'); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors">
                 <i data-lucide="columns" class="w-5 h-5 text-gray-400"></i>
@@ -432,6 +439,7 @@
     <script src="js/todos.js"></script>
     <script src="js/time.js"></script>
     <script src="js/communications.js"></script>
+    <script src="js/ai-agent.js"></script>
     <script src="js/app.js"></script>
     
     <script>

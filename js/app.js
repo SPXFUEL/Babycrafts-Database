@@ -418,7 +418,7 @@ const App = {
 
             <!-- Stats Grid -->
             <div class="stats-grid">
-                <div class="stat-card stat-card-blue">
+                <div class="stat-card stat-card-blue" onclick="App.navigate('orders')" style="cursor: pointer;">
                     <div class="flex items-center justify-between mb-2">
                         <span class="stat-label">${I18n.t('orders.active')}</span>
                         <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -428,7 +428,7 @@ const App = {
                     <div class="stat-value">${stats.active}</div>
                 </div>
                 
-                <div class="stat-card stat-card-green">
+                <div class="stat-card stat-card-green" onclick="App.navigate('archief')" style="cursor: pointer;">
                     <div class="flex items-center justify-between mb-2">
                         <span class="stat-label">${I18n.t('orders.shipped')}</span>
                         <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
@@ -437,6 +437,27 @@ const App = {
                     </div>
                     <div class="stat-value">${stats.completed}</div>
                 </div>
+                
+                <div class="stat-card stat-card-red" onclick="App.showDelayedOrders()" style="cursor: pointer;">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="stat-label">${I18n.t('orders.delayed')}</span>
+                        <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
+                            <i data-lucide="alert-triangle" class="w-5 h-5 text-red-600"></i>
+                        </div>
+                    </div>
+                    <div class="stat-value">${stats.delayed}</div>
+                </div>
+                
+                <div class="stat-card stat-card-orange" onclick="App.showBronsgieterijOrders()" style="cursor: pointer;">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="stat-label">${I18n.t('orders.atBronsgieterij')}</span>
+                        <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
+                            <i data-lucide="factory" class="w-5 h-5 text-orange-600"></i>
+                        </div>
+                    </div>
+                    <div class="stat-value">${stats.atBronsgieterij}</div>
+                </div>
+            </div>
                 
                 <div class="stat-card stat-card-red">
                     <div class="flex items-center justify-between mb-2">
@@ -521,16 +542,20 @@ const App = {
     createOrderCard(order) {
         const faseConfig = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
         const deadlineStatus = Utils.getDeadlineStatus(order);
-        
+
         return `
-            <div class="order-card" onclick="App.showOrderDetail('${order.order_id}')">
-                <div class="order-card-header">
+            <div class="order-card">
+                <div class="order-card-header" onclick="App.showOrderDetail('${order.order_id}')">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-lg ${faseConfig.color} bg-opacity-20 flex items-center justify-center">
                             <span class="text-sm font-bold ${faseConfig.text}">${order.huidige_fase}</span>
                         </div>
                         <div class="min-w-0">
-                            <p class="font-semibold text-gray-900 truncate">${Utils.escapeHtml(order.klant_naam)}</p>
+                            <p class="font-semibold text-gray-900 truncate cursor-pointer hover:text-amber-600" 
+                               onclick="event.stopPropagation(); App.showCustomerPassport('${order.order_id}')"
+                               title="Klik voor klant paspoort">
+                                ${Utils.escapeHtml(order.klant_naam)}
+                            </p>
                             <p class="text-sm text-gray-500">${Utils.escapeHtml(order.order_id)} • ${Utils.escapeHtml(order.collectie)}</p>
                         </div>
                     </div>
@@ -539,7 +564,7 @@ const App = {
                     </span>
                 </div>
                 ${deadlineStatus ? `
-                    <div class="mt-3 flex items-center gap-2 text-xs ${deadlineStatus.class}">
+                    <div class="mt-3 flex items-center gap-2 text-xs ${deadlineStatus.class}" onclick="App.showOrderDetail('${order.order_id}')">
                         <i data-lucide="clock" class="w-4 h-4"></i>
                         <span>${deadlineStatus.text} • ${Utils.formatDate(order.deadline)}</span>
                     </div>
@@ -549,25 +574,29 @@ const App = {
     },
 
     // Render orders page
-    renderOrdersPage(container = document.getElementById('pageContent')) {
+    renderOrdersPage(container) {
+        // Sort by date descending (newest first)
+        const sortedOrders = [...OrdersModule.filteredOrders].sort((a, b) => {
+            return new Date(b.created_at) - new Date(a.created_at);
+        });
+
         container.innerHTML = `
             <div class="page-header">
-                <h1 class="page-title">${I18n.t('nav.orders')}</h1>
-                <p class="page-subtitle">Beheer alle orders en hun status</p>
+                <h1 class="page-title">Alle Orders</h1>
+                <p class="page-subtitle">${sortedOrders.length} order(s) gevonden</p>
             </div>
 
-            <!-- Filters -->
-            <div class="flex flex-wrap gap-2 mb-4 overflow-x-auto pb-2">
-                <button class="filter-tab active" data-fase="all">Alle</button>
-                ${FASES_CONFIG.slice(0, 12).map(f => `
-                    <button class="filter-tab" data-fase="${f.id}">${f.id}</button>
-                `).join('')}
+            <!-- Filters - Vereenvoudigd -->
+            <div class="filter-tabs mb-4">
+                <button class="filter-tab active" data-fase="all" onclick="App.filterOrders('all')">Alle</button>
+                <button class="filter-tab" data-fase="active" onclick="App.filterOrders('active')">Actief</button>
+                <button class="filter-tab" data-fase="brons" onclick="App.filterOrders('brons')">Brons</button>
             </div>
 
             <!-- Orders List -->
             <div id="ordersList" class="space-y-3">
-                ${OrdersModule.filteredOrders.length > 0 
-                    ? OrdersModule.filteredOrders.map(order => this.createOrderCard(order)).join('')
+                ${sortedOrders.length > 0 
+                    ? sortedOrders.map(order => this.createOrderCard(order)).join('')
                     : '<div class="text-center py-12 text-gray-500">Geen orders gevonden</div>'
                 }
             </div>
@@ -578,14 +607,70 @@ const App = {
         }
     },
 
+    // Filter orders
+    filterOrders(filter) {
+        // Update active tab
+        document.querySelectorAll('.filter-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.fase === filter);
+        });
+
+        switch(filter) {
+            case 'all':
+                OrdersModule.filteredOrders = OrdersModule.orders.filter(o => o.status !== 'deleted');
+                break;
+            case 'active':
+                OrdersModule.filteredOrders = OrdersModule.orders.filter(o => 
+                    o.huidige_fase < 12 && o.status !== 'deleted'
+                );
+                break;
+            case 'brons':
+                OrdersModule.filteredOrders = OrdersModule.orders.filter(o => 
+                    (o.huidige_fase === 13 || o.huidige_fase === 14 || o.huidige_fase === 15 || o.huidige_fase === 16) && 
+                    o.status !== 'deleted'
+                );
+                break;
+        }
+        this.renderCurrentPage();
+    },
+
+    // Handle search
+    handleSearch(query) {
+        const searchTerm = query.toLowerCase().trim();
+        if (!searchTerm) {
+            OrdersModule.filteredOrders = OrdersModule.orders.filter(o => o.status !== 'deleted');
+        } else {
+            OrdersModule.filteredOrders = OrdersModule.orders.filter(o => {
+                if (o.status === 'deleted') return false;
+                return (
+                    o.klant_naam?.toLowerCase().includes(searchTerm) ||
+                    o.order_id?.toLowerCase().includes(searchTerm) ||
+                    o.klant_email?.toLowerCase().includes(searchTerm) ||
+                    o.collectie?.toLowerCase().includes(searchTerm)
+                );
+            });
+        }
+        this.renderCurrentPage();
+    },
+
     // Render archief page
     renderArchiefPage(container) {
-        const completed = OrdersModule.orders.filter(o => o.huidige_fase === 12 || o.status === 'completed');
-        
+        const completed = OrdersModule.orders.filter(o => 
+            (o.huidige_fase === 12 || o.status === 'completed') && o.status !== 'deleted'
+        ).sort((a, b) => new Date(b.afgerond_datum || b.updated_at) - new Date(a.afgerond_datum || a.updated_at));
+
         container.innerHTML = `
             <div class="page-header">
-                <h1 class="page-title">${I18n.t('nav.archief')}</h1>
-                <p class="page-subtitle">Afgeronde orders</p>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="page-title">Archief</h1>
+                        <p class="page-subtitle">${completed.length} afgeronde orders</p>
+                    </div>
+                    ${completed.length > 0 ? `
+                        <button onclick="App.confirmDeleteAllArchived()" class="text-red-500 text-sm font-medium px-3 py-2">
+                            Alles wissen
+                        </button>
+                    ` : ''}
+                </div>
             </div>
 
             <div class="space-y-3">
@@ -595,6 +680,37 @@ const App = {
                 }
             </div>
         `;
+    },
+
+    // Confirm delete all archived
+    confirmDeleteAllArchived() {
+        const count = OrdersModule.orders.filter(o => 
+            (o.huidige_fase === 12 || o.status === 'completed') && o.status !== 'deleted'
+        ).length;
+
+        UI.showConfirm({
+            title: 'Alle gearchiveerde orders verwijderen?',
+            message: `Dit verwijdert ${count} afgeronde order(s) uit de app. De data blijft in de database.`,
+            confirmText: 'Alles verwijderen',
+            cancelText: 'Annuleren',
+            type: 'danger',
+            onConfirm: async () => {
+                try {
+                    const archived = OrdersModule.orders.filter(o => 
+                        (o.huidige_fase === 12 || o.status === 'completed') && o.status !== 'deleted'
+                    );
+                    
+                    for (const order of archived) {
+                        await OrdersModule.delete(order.order_id, this.currentUser?.id);
+                    }
+                    
+                    UI.showToast(`${archived.length} orders verwijderd uit app`, 'success');
+                    this.renderCurrentPage();
+                } catch (error) {
+                    UI.showToast('Fout bij verwijderen', 'error');
+                }
+            }
+        });
     },
 
     // Render nazorg page
@@ -659,15 +775,17 @@ const App = {
 
             <!-- Add Todo Form -->
             <div class="content-card mb-4">
-                <form id="addTodoForm" class="flex gap-2">
+                <form id="addTodoForm" class="flex flex-col sm:flex-row gap-2">
                     <input type="text" id="todoTitle" placeholder="Nieuwe taak..." 
-                           class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:border-amber-500 outline-none">
-                    <select id="todoCategory" class="px-4 py-3 border border-gray-200 rounded-xl bg-white">
-                        ${categories.map(c => `<option value="${c.key}">${c.label}</option>`).join('')}
-                    </select>
-                    <button type="submit" class="px-4 py-3 bg-amber-500 text-white rounded-xl">
-                        <i data-lucide="plus" class="w-5 h-5"></i>
-                    </button>
+                           class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:border-amber-500 outline-none text-base">
+                    <div class="flex gap-2">
+                        <select id="todoCategory" class="flex-1 sm:flex-none px-4 py-3 border border-gray-200 rounded-xl bg-white text-base">
+                            ${categories.map(c => `<option value="${c.key}">${c.label}</option>`).join('')}
+                        </select>
+                        <button type="submit" class="px-6 py-3 bg-amber-500 text-white rounded-xl font-medium whitespace-nowrap">
+                            Toevoegen
+                        </button>
+                    </div>
                 </form>
             </div>
 
@@ -1155,6 +1273,212 @@ const App = {
             low: 'bg-green-100 text-green-600'
         };
         return classes[priority] || classes.medium;
+    },
+
+    // Show delayed orders
+    showDelayedOrders() {
+        const today = new Date();
+        const delayed = OrdersModule.orders.filter(o => {
+            if (!o.deadline || o.huidige_fase >= 12 || o.status === 'deleted') return false;
+            return new Date(o.deadline) < today;
+        }).sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
+
+        OrdersModule.filteredOrders = delayed;
+        this.navigate('orders');
+        setTimeout(() => {
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) searchInput.placeholder = `Vertraagd: ${delayed.length} orders`;
+        }, 100);
+    },
+
+    // Show bronsgieterij orders
+    showBronsgieterijOrders() {
+        const bronsOrders = OrdersModule.orders.filter(o => 
+            (o.huidige_fase === 13 || o.huidige_fase === 14 || o.huidige_fase === 15 || o.huidige_fase === 16) && 
+            o.status !== 'deleted'
+        );
+
+        OrdersModule.filteredOrders = bronsOrders;
+        this.navigate('orders');
+        setTimeout(() => {
+            const searchInput = document.getElementById('searchInput');
+            if (searchInput) searchInput.placeholder = `Bronsgieterij: ${bronsOrders.length} orders`;
+        }, 100);
+    },
+
+    // Show customer passport
+    showCustomerPassport(orderId) {
+        const order = OrdersModule.getById(orderId);
+        if (!order) return;
+
+        const faseConfig = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
+        const phone = order.klant_telefoon ? order.klant_telefoon.replace(/\D/g, '') : '';
+        const whatsappLink = phone ? `https://wa.me/31${phone.replace(/^0/, '')}` : null;
+
+        UI.showBottomSheet({
+            title: 'Klant Paspoort',
+            content: `
+                <div class="space-y-4">
+                    <!-- Klant Info Card -->
+                    <div class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-5 border border-amber-100">
+                        <div class="flex items-center gap-4 mb-4">
+                            <div class="w-16 h-16 rounded-full bg-amber-500 text-white flex items-center justify-center text-2xl font-bold">
+                                ${order.klant_naam.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg text-gray-900">${Utils.escapeHtml(order.klant_naam)}</h3>
+                                <p class="text-sm text-gray-500">${Utils.escapeHtml(order.order_id)}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="space-y-2 text-sm">
+                            ${order.klant_email ? `
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="mail" class="w-4 h-4 text-gray-400"></i>
+                                    <a href="mailto:${order.klant_email}" class="text-amber-600">${Utils.escapeHtml(order.klant_email)}</a>
+                                </div>
+                            ` : ''}
+                            ${order.klant_telefoon ? `
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="phone" class="w-4 h-4 text-gray-400"></i>
+                                    <span>${Utils.escapeHtml(order.klant_telefoon)}</span>
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Adres -->
+                    ${order.straat ? `
+                        <div class="bg-gray-50 rounded-xl p-4">
+                            <h4 class="font-semibold text-sm text-gray-700 mb-2">Adres</h4>
+                            <p class="text-sm">${Utils.escapeHtml(order.straat)} ${Utils.escapeHtml(order.huisnummer || '')}</p>
+                            <p class="text-sm">${Utils.escapeHtml(order.postcode || '')} ${Utils.escapeHtml(order.plaats || '')}</p>
+                        </div>
+                    ` : ''}
+
+                    <!-- Order Details -->
+                    <div class="bg-gray-50 rounded-xl p-4">
+                        <h4 class="font-semibold text-sm text-gray-700 mb-3">Order Details</h4>
+                        <div class="grid grid-cols-2 gap-3 text-sm">
+                            <div>
+                                <span class="text-gray-500">Collectie</span>
+                                <p class="font-medium">${Utils.escapeHtml(order.collectie)}</p>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Hoogte</span>
+                                <p class="font-medium">${order.hoogte_cm}cm</p>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Sokkel</span>
+                                <p class="font-medium">${order.sokkel || 'Zonder'}</p>
+                            </div>
+                            <div>
+                                <span class="text-gray-500">Kleur</span>
+                                <p class="font-medium">${order.kleur_afwerking || 'Standaard'}</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Status -->
+                    <div class="${faseConfig.color} bg-opacity-10 rounded-xl p-4 border-l-4 ${faseConfig.color.replace('bg-', 'border-')}">
+                        <span class="text-xs text-gray-500 uppercase tracking-wide">Huidige Status</span>
+                        <p class="font-semibold ${faseConfig.text} text-lg mt-1">${I18n.getFaseName(order.huidige_fase)}</p>
+                        ${order.deadline ? `<p class="text-xs text-gray-500 mt-1">Deadline: ${Utils.formatDate(order.deadline)}</p>` : ''}
+                    </div>
+
+                    <!-- WhatsApp Button -->
+                    ${whatsappLink ? `
+                        <a href="${whatsappLink}" target="_blank" class="flex items-center justify-center gap-2 w-full py-3 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 transition-colors">
+                            <i data-lucide="message-circle" class="w-5 h-5"></i>
+                            WhatsApp Bericht Sturen
+                        </a>
+                    ` : '<p class="text-center text-gray-400 text-sm">Geen telefoonnummer beschikbaar voor WhatsApp</p>'}
+
+                    <!-- Acties -->
+                    <div class="grid grid-cols-2 gap-3">
+                        <button onclick="App.showOrderDetail('${orderId}')" class="py-3 bg-gray-100 text-gray-700 rounded-xl font-medium">
+                            Order Details
+                        </button>
+                        <button onclick="App.editOrder('${orderId}')" class="py-3 bg-amber-100 text-amber-700 rounded-xl font-medium">
+                            Bewerken
+                        </button>
+                    </div>
+                </div>
+            `
+        });
+    },
+
+    // Show AI Assistant
+    showAIAssistant() {
+        const messages = JSON.parse(localStorage.getItem('ai_chat_history') || '[]');
+        
+        UI.showBottomSheet({
+            title: '🤖 AI Assistent',
+            content: `
+                <div class="flex flex-col h-[60vh]">
+                    <!-- Chat Messages -->
+                    <div id="aiChatMessages" class="flex-1 overflow-y-auto space-y-3 mb-4 p-2">
+                        ${messages.length === 0 ? `
+                            <div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
+                                <p class="font-medium mb-2">Hallo! Ik ben je Babycrafts AI assistent.</p>
+                                <p>Je kunt me vragen stellen zoals:</p>
+                                <ul class="mt-2 space-y-1 text-gray-500">
+                                    <li>• "Welke beeldjes moeten vandaag af?"</li>
+                                    <li>• "Welke orders zijn vertraagd?"</li>
+                                    <li>• "Wat is de status van [klantnaam]?"</li>
+                                    <li>• "Wat moet ik vandaag doen?"</li>
+                                </ul>
+                            </div>
+                        ` : messages.map(m => `
+                            <div class="${m.role === 'user' ? 'ml-8' : 'mr-8'}">
+                                <div class="${m.role === 'user' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-800'} rounded-2xl px-4 py-3 text-sm whitespace-pre-line">
+                                    ${Utils.escapeHtml(m.content)}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                    
+                    <!-- Input -->
+                    <div class="flex gap-2">
+                        <input type="text" id="aiQuestion" placeholder="Stel een vraag..." 
+                               class="flex-1 px-4 py-3 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                               onkeypress="if(event.key==='Enter')App.askAI()">
+                        <button onclick="App.askAI()" class="px-4 py-3 bg-amber-500 text-white rounded-xl hover:bg-amber-600 transition-colors">
+                            <i data-lucide="send" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+                </div>
+            `
+        });
+        
+        // Scroll to bottom
+        setTimeout(() => {
+            const container = document.getElementById('aiChatMessages');
+            if (container) container.scrollTop = container.scrollHeight;
+        }, 100);
+    },
+
+    // Ask AI
+    askAI() {
+        const input = document.getElementById('aiQuestion');
+        const question = input?.value.trim();
+        if (!question) return;
+        
+        // Update AI context
+        AIAgent.updateContext(OrdersModule.orders, TodosModule.todos);
+        
+        // Get response
+        const response = AIAgent.ask(question);
+        
+        // Save to history
+        const messages = JSON.parse(localStorage.getItem('ai_chat_history') || '[]');
+        messages.push({ role: 'user', content: question, time: Date.now() });
+        messages.push({ role: 'assistant', content: response, time: Date.now() });
+        if (messages.length > 20) messages.splice(0, messages.length - 20);
+        localStorage.setItem('ai_chat_history', JSON.stringify(messages));
+        
+        // Refresh the chat
+        this.showAIAssistant();
     }
 };
 
