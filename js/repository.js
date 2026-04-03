@@ -19,12 +19,37 @@ const Repository = {
     handleError(error, operation) {
         console.error(`Repository error [${operation}]:`, error);
         
-        // Log to audit if available
-        if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-            Audit.log('error', 'repository', operation, { error: error.message });
+        // Create user-friendly error message
+        let userMessage = 'Er is een fout opgetreden bij het opslaan van gegevens.';
+        
+        if (error.code === '42501') {
+            userMessage = 'Geen toegang tot database. Controleer of je bent ingelogd met de juiste rechten.';
+        } else if (error.code === '23514') {
+            if (error.message?.includes('huidige_fase')) {
+                userMessage = 'Deze fase wordt niet ondersteund door de database. Neem contact op met de beheerder om fases 13-16 toe te voegen.';
+            } else {
+                userMessage = 'De ingevoerde waarde voldoet niet aan de database regels.';
+            }
+        } else if (error.code === '23505') {
+            userMessage = 'Dit record bestaat al.';
+        } else if (error.code === '23503') {
+            userMessage = 'Kan niet verwijderen omdat er gekoppelde gegevens zijn.';
         }
         
-        throw error;
+        // Store error for UI display
+        window.lastRepositoryError = {
+            operation,
+            code: error.code,
+            message: userMessage,
+            raw: error.message
+        };
+        
+        // Log to audit if available
+        if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
+            Audit.log('error', 'repository', operation, { error: error.message, code: error.code });
+        }
+        
+        throw new Error(userMessage);
     },
 
     // ==========================================

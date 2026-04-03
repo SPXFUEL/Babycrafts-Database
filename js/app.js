@@ -1155,13 +1155,29 @@ const App = {
                 e.preventDefault();
                 const formData = Object.fromEntries(new FormData(e.target));
                 
+                // Show loading state
+                const submitBtn = e.target.querySelector('button[type="submit"]');
+                const originalText = submitBtn?.textContent || 'Opslaan';
+                if (submitBtn) {
+                    submitBtn.disabled = true;
+                    submitBtn.textContent = 'Bezig...';
+                }
+                
                 try {
                     await OrdersModule.create(formData, this.currentUser?.id);
                     UI.closeBottomSheet();
                     UI.showToast('Order aangemaakt', 'success');
                     this.renderOrdersPage();
                 } catch (error) {
-                    UI.showToast('Fout bij aanmaken', 'error');
+                    console.error('Create order error:', error);
+                    const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij aanmaken order';
+                    UI.showToast(errorMsg, 'error', 5000);
+                } finally {
+                    // Restore button state
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
                 }
             });
         }, 100);
@@ -1173,7 +1189,10 @@ const App = {
         if (!order) return;
 
         const nextFase = getNextFase(order.huidige_fase, order.collectie);
-        if (nextFase === null) return;
+        if (nextFase === null) {
+            UI.showToast('Order is al afgerond', 'info');
+            return;
+        }
 
         try {
             await OrdersModule.updateFase(orderId, nextFase, this.currentUser?.id);
@@ -1191,7 +1210,9 @@ const App = {
             UI.showToast('Fase bijgewerkt', 'success');
             this.renderCurrentPage();
         } catch (error) {
-            UI.showToast('Fout bij bijwerken', 'error');
+            console.error('Advance order error:', error);
+            const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij bijwerken';
+            UI.showToast(errorMsg, 'error', 5000);
         }
     },
 
@@ -1477,8 +1498,34 @@ const App = {
         if (messages.length > 20) messages.splice(0, messages.length - 20);
         localStorage.setItem('ai_chat_history', JSON.stringify(messages));
         
-        // Refresh the chat
-        this.showAIAssistant();
+        // Clear input
+        input.value = '';
+        
+        // Append new messages to chat instead of re-rendering
+        const container = document.getElementById('aiChatMessages');
+        if (container) {
+            // Remove empty state if present
+            const emptyState = container.querySelector('.bg-gray-50');
+            if (emptyState) emptyState.remove();
+            
+            // Add user message
+            const userDiv = document.createElement('div');
+            userDiv.className = 'ml-8';
+            userDiv.innerHTML = `<div class="bg-amber-500 text-white rounded-2xl px-4 py-3 text-sm whitespace-pre-line">${Utils.escapeHtml(question)}</div>`;
+            container.appendChild(userDiv);
+            
+            // Add assistant message
+            const assistantDiv = document.createElement('div');
+            assistantDiv.className = 'mr-8';
+            assistantDiv.innerHTML = `<div class="bg-gray-100 text-gray-800 rounded-2xl px-4 py-3 text-sm whitespace-pre-line">${Utils.escapeHtml(response)}</div>`;
+            container.appendChild(assistantDiv);
+            
+            // Scroll to bottom
+            container.scrollTop = container.scrollHeight;
+        } else {
+            // Fallback: re-render if container not found
+            this.showAIAssistant();
+        }
     }
 };
 
