@@ -398,6 +398,9 @@ const App = {
             case 'settings':
                 this.renderSettingsPage(content);
                 break;
+            case 'schema':
+                this.renderSchemaPage(content);
+                break;
             default:
                 this.renderDashboard(content);
         }
@@ -923,6 +926,124 @@ const App = {
                 UI.showToast('Fout bij registreren', 'error');
             }
         });
+    },
+
+    // Render schema page (production schema)
+    renderSchemaPage(container) {
+        const activeOrders = OrdersModule.getActive();
+        
+        // Group orders by workflow
+        const standardOrders = activeOrders.filter(o => {
+            const wf = getWorkflowForCollectie(o.collectie);
+            return wf === 'standard';
+        });
+        
+        const atelierBronzeOrders = activeOrders.filter(o => {
+            const wf = getWorkflowForCollectie(o.collectie);
+            return wf === 'atelier_bronze';
+        });
+        
+        const gegotenBronsOrders = activeOrders.filter(o => {
+            const wf = getWorkflowForCollectie(o.collectie);
+            return wf === 'gegoten_brons';
+        });
+        
+        // Build workflow sections
+        const buildWorkflowSection = (title, orders, workflowKey) => {
+            if (orders.length === 0) return '';
+            
+            const workflow = WORKFLOWS[workflowKey];
+            
+            return `
+                <div class="content-card mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h3 class="font-semibold text-gray-800">${title}</h3>
+                            <p class="text-sm text-gray-500">${orders.length} orders • ${workflow.duration}</p>
+                        </div>
+                        <span class="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded-full">${workflowKey}</span>
+                    </div>
+                    
+                    <!-- Timeline Header -->
+                    <div class="overflow-x-auto">
+                        <div class="flex gap-2 mb-4 min-w-max">
+                            ${workflow.fases.map(faseNum => {
+                                const faseConfig = FASES_CONFIG[faseNum];
+                                return `
+                                    <div class="flex-shrink-0 w-24 text-center">
+                                        <div class="w-8 h-8 mx-auto rounded-full ${faseConfig.color} flex items-center justify-center text-white text-xs font-bold mb-1">
+                                            ${faseNum}
+                                        </div>
+                                        <p class="text-xs text-gray-600 truncate" title="${faseConfig.name}">${faseConfig.name}</p>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                    
+                    <!-- Orders -->
+                    <div class="space-y-2">
+                        ${orders.map(order => {
+                            const currentIndex = workflow.fases.indexOf(order.huidige_fase);
+                            return `
+                                <div class="flex items-center gap-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
+                                     onclick="App.showOrderDetail('${order.order_id}')">
+                                    <div class="w-32 flex-shrink-0">
+                                        <p class="font-medium text-sm truncate">${Utils.escapeHtml(order.klant_naam)}</p>
+                                        <p class="text-xs text-gray-500">${order.order_id}</p>
+                                    </div>
+                                    <div class="flex-1 flex gap-1">
+                                        ${workflow.fases.map((faseNum, idx) => {
+                                            const faseConfig = FASES_CONFIG[faseNum];
+                                            const isCompleted = idx < currentIndex;
+                                            const isCurrent = idx === currentIndex;
+                                            
+                                            let bgClass = 'bg-gray-200';
+                                            if (isCompleted) bgClass = 'bg-green-500';
+                                            else if (isCurrent) bgClass = faseConfig.color;
+                                            
+                                            return `
+                                                <div class="flex-1 h-6 ${bgClass} rounded ${isCurrent ? 'ring-2 ring-offset-1 ring-blue-400' : ''}"
+                                                     title="${faseConfig.name} ${isCurrent ? '(huidig)' : isCompleted ? '(voltooid)' : ''}">
+                                                </div>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                    <div class="w-8 text-center">
+                                        ${currentIndex === workflow.fases.length - 1 ? 
+                                            '<span class="text-green-500">✓</span>' :
+                                            `<span class="text-xs text-gray-500">${currentIndex + 1}/${workflow.fases.length}</span>`
+                                        }
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        };
+        
+        container.innerHTML = `
+            <div class="page-header">
+                <h1 class="page-title">Productie Schema</h1>
+                <p class="page-subtitle">Overzicht van alle workflows</p>
+            </div>
+            
+            ${standardOrders.length > 0 ? buildWorkflowSection('Standaard Workflow', standardOrders, 'standard') : ''}
+            ${atelierBronzeOrders.length > 0 ? buildWorkflowSection('Atelier Bronze Workflow', atelierBronzeOrders, 'atelier_bronze') : ''}
+            ${gegotenBronsOrders.length > 0 ? buildWorkflowSection('Gegoten Brons Workflow', gegotenBronsOrders, 'gegoten_brons') : ''}
+            
+            ${activeOrders.length === 0 ? `
+                <div class="text-center py-12 text-gray-500">
+                    <i data-lucide="columns" class="w-12 h-12 mx-auto mb-4 opacity-50"></i>
+                    <p>Geen actieve orders</p>
+                </div>
+            ` : ''}
+        `;
+        
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons({ nodes: [container] });
+        }
     },
 
     // Render settings page
