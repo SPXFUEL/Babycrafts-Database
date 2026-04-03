@@ -463,7 +463,7 @@ const App = {
             <div class="content-card">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="card-title">Recente Orders</h2>
-                    <button class="btn-text" onclick="App.navigateTo('orders')">Alle orders →</button>
+                    <button class="btn-text" onclick="App.navigate('orders')">Alle orders →</button>
                 </div>
                 <div id="recentOrdersList" class="space-y-3">
                     ${recentOrders.length > 0 
@@ -477,7 +477,7 @@ const App = {
             <div class="content-card">
                 <div class="flex items-center justify-between mb-4">
                     <h2 class="card-title">Openstaande Taken</h2>
-                    <button class="btn-text" onclick="App.navigateTo('todos')">Alle taken →</button>
+                    <button class="btn-text" onclick="App.navigate('todos')">Alle taken →</button>
                 </div>
                 <div class="space-y-2">
                     ${todos.eenmalig?.slice(0, 3).map(todo => `
