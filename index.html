@@ -91,6 +91,12 @@
         /* Search input */
         .search-input { background: #f3f4f6; border: none; border-radius: 12px; padding: 12px 16px 12px 44px; width: 100%; font-size: 16px; transition: all 0.2s; }
         .search-input:focus { background: white; box-shadow: 0 0 0 2px #f59e0b; outline: none; }
+        
+        /* PIN Login */
+        .pin-dot { transition: all 0.2s; }
+        .pin-dot.filled { border-color: #f59e0b; background: #f59e0b; color: white; }
+        .pin-dot.active { border-color: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2); }
+        .pin-key:active { transform: scale(0.95); background: #f3f4f6; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900">
@@ -104,32 +110,49 @@
         <div class="safe-top"></div>
         <div class="flex-1 flex items-center justify-center p-6">
             <div class="w-full max-w-sm">
-                <div class="text-center mb-10">
-                    <div class="w-28 h-28 mx-auto mb-6 bg-white rounded-3xl shadow-lg flex items-center justify-center p-4">
+                <div class="text-center mb-8">
+                    <div class="w-24 h-24 mx-auto mb-4 bg-white rounded-3xl shadow-lg flex items-center justify-center p-4">
                         <img src="https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png" alt="Babycrafts" class="w-full h-full object-contain">
                     </div>
-                    <h1 class="text-3xl font-bold text-gray-900 mb-2">Babycrafts</h1>
-                    <p class="text-gray-500">Atelier Management Pro</p>
+                    <h1 class="text-2xl font-bold text-gray-900 mb-1">Babycrafts</h1>
+                    <p class="text-gray-500 text-sm">Atelier Management Pro</p>
                 </div>
                 
-                <form id="loginForm" class="space-y-4">
-                    <div>
-                        <input type="email" id="loginEmail" placeholder="Email adres" required
-                               class="w-full px-5 py-4 bg-white border border-gray-200 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all">
+                <!-- PIN Login -->
+                <div id="pinLogin">
+                    <p class="text-center text-gray-600 mb-6">Voer uw toegangscode in</p>
+                    
+                    <!-- PIN Display -->
+                    <div class="flex justify-center gap-3 mb-8">
+                        <div class="pin-dot w-14 h-14 rounded-2xl bg-white border-2 border-gray-200 flex items-center justify-center text-2xl font-bold transition-all" data-index="0"></div>
+                        <div class="pin-dot w-14 h-14 rounded-2xl bg-white border-2 border-gray-200 flex items-center justify-center text-2xl font-bold transition-all" data-index="1"></div>
+                        <div class="pin-dot w-14 h-14 rounded-2xl bg-white border-2 border-gray-200 flex items-center justify-center text-2xl font-bold transition-all" data-index="2"></div>
+                        <div class="pin-dot w-14 h-14 rounded-2xl bg-white border-2 border-gray-200 flex items-center justify-center text-2xl font-bold transition-all" data-index="3"></div>
                     </div>
-                    <div>
-                        <input type="password" id="loginPassword" placeholder="Wachtwoord" required
-                               class="w-full px-5 py-4 bg-white border border-gray-200 rounded-2xl text-base focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-all">
+                    
+                    <p id="pinError" class="text-center text-red-500 text-sm mb-4 hidden">Ongeldige code</p>
+                    
+                    <!-- PIN Keypad -->
+                    <div class="grid grid-cols-3 gap-3 mb-4">
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="1">1</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="2">2</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="3">3</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="4">4</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="5">5</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="6">6</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="7">7</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="8">8</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="9">9</button>
+                        <button class="py-4 rounded-2xl text-sm font-medium text-gray-400" disabled></button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="0">0</button>
+                        <button id="pinBackspace" class="py-4 bg-gray-100 rounded-2xl flex items-center justify-center hover:bg-gray-200 active:scale-95 transition-all">
+                            <i data-lucide="delete" class="w-6 h-6 text-gray-600"></i>
+                        </button>
                     </div>
-                    <button type="submit" id="loginButton" class="w-full py-4 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-2xl shadow-lg shadow-primary-500/30 transition-all active:scale-95 flex items-center justify-center gap-2">
-                        <span>Inloggen</span>
-                    </button>
-                </form>
+                </div>
                 
                 <div class="mt-6 text-center">
-                    <button onclick="App.showRegister()" class="text-primary-600 font-medium hover:underline">
-                        Nog geen account? Registreer
-                    </button>
+                    <p class="text-xs text-gray-400">© Babycrafts Atelier</p>
                 </div>
             </div>
         </div>

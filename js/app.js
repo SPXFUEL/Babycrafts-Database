@@ -71,35 +71,181 @@ const App = {
         }
     },
 
+    // PIN codes configuratie
+    PIN_CODES: {
+        '2911': { name: 'Eigenaar', role: 'admin', email: 'admin@babycrafts.local' },
+        '0805': { name: 'Medewerker', role: 'staff', email: 'staff@babycrafts.local' }
+    },
+    
+    currentPin: '',
+
     // Check authentication
     async checkAuth() {
-        const { data: { session } } = await this.supabase.auth.getSession();
-        
-        if (session) {
-            this.currentUser = session.user;
-            this.showMainApp();
-            await this.loadInitialData();
-        } else {
-            this.showLoginScreen();
-        }
-
-        // Listen for auth changes
-        this.supabase.auth.onAuthStateChange((event, session) => {
-            if (event === 'SIGNED_IN') {
-                this.currentUser = session.user;
+        // Check for stored session
+        const savedSession = localStorage.getItem('babycrafts_session');
+        if (savedSession) {
+            try {
+                this.currentUser = JSON.parse(savedSession);
                 this.showMainApp();
-                this.loadInitialData();
-            } else if (event === 'SIGNED_OUT') {
-                this.currentUser = null;
-                this.showLoginScreen();
+                await this.loadInitialData();
+                return;
+            } catch (e) {
+                localStorage.removeItem('babycrafts_session');
             }
-        });
+        }
+        
+        this.showLoginScreen();
     },
 
     // Show login screen
     showLoginScreen() {
         document.getElementById('loginScreen').classList.remove('hidden');
         document.getElementById('mainApp').classList.add('hidden');
+        
+        // Reset PIN
+        this.currentPin = '';
+        this.updatePinDisplay();
+        
+        // Setup PIN keypad
+        this.setupPinKeypad();
+    },
+    
+    // Setup PIN keypad
+    setupPinKeypad() {
+        // Number keys
+        document.querySelectorAll('.pin-key').forEach(key => {
+            key.addEventListener('click', () => {
+                const digit = key.dataset.key;
+                this.handlePinDigit(digit);
+            });
+        });
+        
+        // Backspace
+        const backspace = document.getElementById('pinBackspace');
+        if (backspace) {
+            backspace.addEventListener('click', () => {
+                this.handlePinBackspace();
+            });
+        }
+        
+        // Keyboard support
+        document.addEventListener('keydown', (e) => {
+            if (!document.getElementById('loginScreen').classList.contains('hidden')) {
+                if (e.key >= '0' && e.key <= '9') {
+                    this.handlePinDigit(e.key);
+                } else if (e.key === 'Backspace') {
+                    this.handlePinBackspace();
+                }
+            }
+        });
+    },
+    
+    // Handle PIN digit
+    handlePinDigit(digit) {
+        if (this.currentPin.length < 4) {
+            this.currentPin += digit;
+            this.updatePinDisplay();
+            
+            // Check if complete
+            if (this.currentPin.length === 4) {
+                setTimeout(() => this.verifyPin(), 200);
+            }
+        }
+    },
+    
+    // Handle PIN backspace
+    handlePinBackspace() {
+        this.currentPin = this.currentPin.slice(0, -1);
+        this.updatePinDisplay();
+        this.hidePinError();
+    },
+    
+    // Update PIN display
+    updatePinDisplay() {
+        const dots = document.querySelectorAll('.pin-dot');
+        dots.forEach((dot, index) => {
+            if (index < this.currentPin.length) {
+                dot.textContent = '•';
+                dot.classList.add('filled');
+            } else {
+                dot.textContent = '';
+                dot.classList.remove('filled');
+            }
+        });
+    },
+    
+    // Show PIN error
+    showPinError() {
+        const error = document.getElementById('pinError');
+        if (error) {
+            error.classList.remove('hidden');
+        }
+        
+        // Shake animation
+        const dots = document.querySelectorAll('.pin-dot');
+        dots.forEach(dot => {
+            dot.style.borderColor = '#ef4444';
+            dot.animate([
+                { transform: 'translateX(0)' },
+                { transform: 'translateX(-5px)' },
+                { transform: 'translateX(5px)' },
+                { transform: 'translateX(0)' }
+            ], { duration: 300 });
+        });
+        
+        setTimeout(() => {
+            dots.forEach(dot => {
+                dot.style.borderColor = '';
+            });
+        }, 1000);
+    },
+    
+    // Hide PIN error
+    hidePinError() {
+        const error = document.getElementById('pinError');
+        if (error) {
+            error.classList.add('hidden');
+        }
+    },
+    
+    // Verify PIN
+    async verifyPin() {
+        const userData = this.PIN_CODES[this.currentPin];
+        
+        if (userData) {
+            // Success
+            this.currentUser = {
+                id: `local_${userData.role}_${this.currentPin}`,
+                email: userData.email,
+                user_metadata: {
+                    name: userData.name,
+                    role: userData.role
+                }
+            };
+            
+            // Save session
+            localStorage.setItem('babycrafts_session', JSON.stringify(this.currentUser));
+            
+            // Show success
+            const dots = document.querySelectorAll('.pin-dot');
+            dots.forEach(dot => {
+                dot.style.borderColor = '#10b981';
+                dot.style.background = '#10b981';
+                dot.style.color = 'white';
+            });
+            
+            setTimeout(() => {
+                this.showMainApp();
+                this.loadInitialData();
+                UI.showToast(`Welkom ${userData.name}`, 'success');
+            }, 300);
+            
+        } else {
+            // Wrong PIN
+            this.showPinError();
+            this.currentPin = '';
+            setTimeout(() => this.updatePinDisplay(), 500);
+        }
     },
 
     // Show main app
@@ -125,86 +271,34 @@ const App = {
 
     // Setup event listeners
     setupEventListeners() {
-        // Login form
-        document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const email = document.getElementById('loginEmail').value;
-            const password = document.getElementById('loginPassword').value;
-            await this.login(email, password);
+        // Logout - look for element with onclick="App.logout()"
+        // Navigation is handled via onclick in HTML
+        
+        // Menu button
+        document.getElementById('menuBtn')?.addEventListener('click', () => {
+            document.getElementById('sideMenu').classList.add('open');
+            document.getElementById('menuOverlay').classList.add('visible');
         });
 
-        // Logout
-        document.getElementById('logoutBtn')?.addEventListener('click', () => this.logout());
-
-        // Navigation
-        document.querySelectorAll('[data-page]').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const page = e.currentTarget.dataset.page;
-                this.navigateTo(page);
-            });
-        });
-
-        // Mobile menu toggle
-        document.getElementById('mobileMenuBtn')?.addEventListener('click', () => {
-            document.getElementById('sideMenu').classList.toggle('-translate-x-full');
-        });
-
-        // Close mobile menu when clicking outside
+        // Menu overlay
         document.getElementById('menuOverlay')?.addEventListener('click', () => {
-            document.getElementById('sideMenu').classList.add('-translate-x-full');
+            document.getElementById('sideMenu').classList.remove('open');
+            document.getElementById('menuOverlay').classList.remove('visible');
         });
 
-        // New order button
-        document.getElementById('newOrderBtn')?.addEventListener('click', () => this.showNewOrderForm());
-        document.getElementById('mobileNewOrderBtn')?.addEventListener('click', () => this.showNewOrderForm());
-
-        // Search
-        document.getElementById('searchInput')?.addEventListener('input', (e) => {
-            OrdersModule.search(e.target.value);
-            this.renderOrdersList();
+        // New order form
+        document.getElementById('newOrderForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleNewOrder(e.target);
         });
-
-        // Filter tabs
-        document.querySelectorAll('.filter-tab').forEach(tab => {
-            tab.addEventListener('click', (e) => {
-                const fase = e.currentTarget.dataset.fase;
-                OrdersModule.filterByFase(fase === 'all' ? null : parseInt(fase));
-                this.renderOrdersList();
-                
-                document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-            });
-        });
-
-        // Sort select
-        document.getElementById('sortSelect')?.addEventListener('change', (e) => {
-            OrdersModule.sort(e.target.value);
-            this.renderOrdersList();
-        });
-    },
-
-    // Login
-    async login(email, password) {
-        try {
-            const { data, error } = await this.supabase.auth.signInWithPassword({ email, password });
-            if (error) throw error;
-            
-            Audit.log('login', 'auth', data.user.id);
-            UI.showToast(I18n.t('auth.loginSuccess'), 'success');
-        } catch (error) {
-            UI.showToast(error.message, 'error');
-        }
     },
 
     // Logout
-    async logout() {
-        try {
-            Audit.log('logout', 'auth', this.currentUser?.id);
-            await this.supabase.auth.signOut();
-            UI.showToast(I18n.t('auth.logoutSuccess'), 'info');
-        } catch (error) {
-            UI.showToast(error.message, 'error');
-        }
+    logout() {
+        localStorage.removeItem('babycrafts_session');
+        this.currentUser = null;
+        this.showLoginScreen();
+        UI.showToast('Uitgelogd', 'info');
     },
 
     // Navigate to page

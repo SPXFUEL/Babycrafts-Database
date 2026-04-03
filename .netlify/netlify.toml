@@ -7,7 +7,7 @@ headers = []
 [functions."*"]
 
 [build]
-publish = "/root/.openclaw/workspace"
+publish = "/root/.openclaw/workspace/Babycrafts-Database-V2"
 publishOrigin = "config"
 
 [build.environment]
