@@ -1030,6 +1030,11 @@ const App = {
 
                     <!-- Action Buttons -->
                     <div class="space-y-2">
+                        <button onclick="App.showProductionSchema('${orderId}')" 
+                                class="w-full py-3 bg-blue-500 text-white rounded-xl font-medium">
+                            📋 Productieschema Bekijken
+                        </button>
+                        
                         <button onclick="App.advanceOrder('${orderId}')" 
                                 class="w-full py-3 ${canAdvance.can ? 'bg-green-500' : 'bg-gray-300'} text-white rounded-xl font-medium"
                                 ${!canAdvance.can ? 'disabled' : ''}>
@@ -1045,12 +1050,12 @@ const App = {
 
                         <div class="grid grid-cols-2 gap-2">
                             <button onclick="App.editOrder('${orderId}')" 
-                                    class="py-3 bg-gray-100 text-gray-700 rounded-xl">
-                                Bewerken
+                                    class="py-3 bg-amber-100 text-amber-700 rounded-xl font-medium">
+                                ✏️ Bewerken
                             </button>
                             <button onclick="App.deleteOrder('${orderId}')" 
                                     class="py-3 bg-red-100 text-red-600 rounded-xl">
-                                Verwijderen
+                                🗑️ Verwijderen
                             </button>
                         </div>
                     </div>
@@ -1526,6 +1531,159 @@ const App = {
             // Fallback: re-render if container not found
             this.showAIAssistant();
         }
+    },
+
+    // Edit order
+    editOrder(orderId) {
+        const order = OrdersModule.getById(orderId);
+        if (!order) return;
+
+        const collecties = ['Figura', 'Arte-Lumina', 'Natura-Alba', 'Ouder \u0026 Kind', 'Babybeeld', 'Atelier-Bronze', 'Gegoten Brons', 'Aangepast'];
+        
+        UI.showBottomSheet({
+            title: `Bewerk ${orderId}`,
+            content: `
+                <form id="editOrderForm" class="space-y-4 max-h-[60vh] overflow-y-auto p-1">
+                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
+                        <h4 class="font-medium text-gray-700">Klantgegevens</h4>
+                        <input type="text" name="klant_naam" value="${Utils.escapeHtml(order.klant_naam || '')}" placeholder="Naam klant" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <input type="email" name="klant_email" value="${Utils.escapeHtml(order.klant_email || '')}" placeholder="Email" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <input type="tel" name="klant_telefoon" value="${Utils.escapeHtml(order.klant_telefoon || '')}" placeholder="Telefoonnummer" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
+                        <h4 class="font-medium text-gray-700">Adres</h4>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input type="text" name="straat" value="${Utils.escapeHtml(order.straat || '')}" placeholder="Straat" class="col-span-2 w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            <input type="text" name="huisnummer" value="${Utils.escapeHtml(order.huisnummer || '')}" placeholder="Nr" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <input type="text" name="postcode" value="${Utils.escapeHtml(order.postcode || '')}" placeholder="Postcode" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm uppercase focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            <input type="text" name="plaats" value="${Utils.escapeHtml(order.plaats || '')}" placeholder="Plaats" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        </div>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
+                        <h4 class="font-medium text-gray-700">Product Details</h4>
+                        <select name="collectie" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            ${collecties.map(c => `<option value="${c}" ${order.collectie === c ? 'selected' : ''}>${c}</option>`).join('')}
+                        </select>
+                        <div class="grid grid-cols-2 gap-2">
+                            <input type="number" name="hoogte_cm" value="${order.hoogte_cm || 20}" placeholder="Hoogte cm" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            <input type="text" name="kleur_afwerking" value="${Utils.escapeHtml(order.kleur_afwerking || '')}" placeholder="Kleur afwerking" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        </div>
+                        <select name="sokkel" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            <option value="Met" ${order.sokkel === 'Met' ? 'selected' : ''}>Met sokkel</option>
+                            <option value="Zonder" ${order.sokkel === 'Zonder' ? 'selected' : ''}>Zonder sokkel</option>
+                        </select>
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
+                        <h4 class="font-medium text-gray-700">Overige</h4>
+                        <input type="date" name="deadline" value="${order.deadline || ''}" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <textarea name="extra_notities" placeholder="Extra notities" rows="3" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">${Utils.escapeHtml(order.extra_notities || '')}</textarea>
+                    </div>
+                    
+                    <button type="submit" class="w-full py-3 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 transition-colors">
+                        Wijzigingen Opslaan
+                    </button>
+                </form>
+            `
+        });
+        
+        // Add submit handler
+        setTimeout(() => {
+            document.getElementById('editOrderForm')?.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const formData = Object.fromEntries(new FormData(e.target));
+                
+                // Convert hoogte_cm to number
+                formData.hoogte_cm = parseInt(formData.hoogte_cm) || 20;
+                
+                try {
+                    await OrdersModule.update(orderId, formData, this.currentUser?.id);
+                    UI.closeBottomSheet();
+                    UI.showToast('Order bijgewerkt', 'success');
+                    this.renderCurrentPage();
+                } catch (error) {
+                    console.error('Update error:', error);
+                    const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij bijwerken order';
+                    UI.showToast(errorMsg, 'error', 5000);
+                }
+            });
+        }, 100);
+    },
+
+    // Show production schema (timeline)
+    showProductionSchema(orderId) {
+        const order = OrdersModule.getById(orderId);
+        if (!order) return;
+
+        const workflow = getWorkflowForCollectie(order.collectie);
+        const workflowConfig = WORKFLOWS[workflow];
+        const fases = workflowConfig.fases;
+        const currentIndex = fases.indexOf(order.huidige_fase);
+        
+        // Build timeline HTML
+        let timelineHtml = '';
+        fases.forEach((faseNum, index) => {
+            const faseConfig = FASES_CONFIG[faseNum];
+            const isCompleted = index < currentIndex;
+            const isCurrent = index === currentIndex;
+            const isFuture = index > currentIndex;
+            
+            let statusIcon = '';
+            let statusClass = '';
+            
+            if (isCompleted) {
+                statusIcon = '✓';
+                statusClass = 'bg-green-500 text-white';
+            } else if (isCurrent) {
+                statusIcon = '●';
+                statusClass = `${faseConfig.color} text-white ring-4 ring-opacity-30 ${faseConfig.color}`;
+            } else {
+                statusIcon = '○';
+                statusClass = 'bg-gray-200 text-gray-400';
+            }
+            
+            timelineHtml += `
+                <div class="flex items-start gap-4 ${isFuture ? 'opacity-50' : ''}">
+                    <div class="flex flex-col items-center">
+                        <div class="w-10 h-10 rounded-full ${statusClass} flex items-center justify-center font-bold text-sm shadow-sm">
+                            ${statusIcon}
+                        </div>
+                        ${index < fases.length - 1 ? `<div class="w-0.5 h-12 bg-gray-200 mt-1"></div>` : ''}
+                    </div>
+                    <div class="flex-1 pb-8">
+                        <p class="font-medium ${isCurrent ? faseConfig.text : 'text-gray-700'}">${faseConfig.name}</p>
+                        ${faseConfig.duration ? `<p class="text-xs text-gray-500">${faseConfig.duration}</p>` : ''}
+                        ${isCurrent ? `<p class="text-xs font-medium ${faseConfig.text} mt-1">← Huidige fase</p>` : ''}
+                    </div>
+                </div>
+            `;
+        });
+
+        UI.showBottomSheet({
+            title: '📋 Productieschema',
+            content: `
+                <div class="space-y-4">
+                    <div class="bg-primary-50 rounded-xl p-4">
+                        <p class="font-medium text-primary-800">${Utils.escapeHtml(order.klant_naam)}</p>
+                        <p class="text-sm text-primary-600">${order.order_id} • ${order.collectie}</p>
+                        <p class="text-xs text-primary-500 mt-1">Workflow: ${workflowConfig.name}</p>
+                    </div>
+                    
+                    <div class="pl-2">
+                        ${timelineHtml}
+                    </div>
+                    
+                    <div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
+                        <p class="font-medium mb-1">Duur: ${workflowConfig.duration}</p>
+                        <p>Fase ${currentIndex + 1} van ${fases.length}</p>
+                    </div>
+                </div>
+            `
+        });
     }
 };
 
