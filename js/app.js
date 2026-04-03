@@ -295,11 +295,11 @@ const App = {
     // Load initial data
     async loadInitialData() {
         try {
-            await Promise.all([
-                OrdersModule.initialize(),
-                TodosModule.initialize(),
-                TimeModule.initialize()
-            ]);
+            const promises = [OrdersModule.initialize(), TodosModule.initialize()];
+            if (typeof TimeModule !== 'undefined') {
+                promises.push(TimeModule.initialize());
+            }
+            await Promise.all(promises);
             this.renderCurrentPage();
         } catch (error) {
             console.error('Load data error:', error);
