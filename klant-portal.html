@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f59e0b">
+    <title>Babycrafts - Mijn Order</title>
+    
+    <link rel="icon" href="https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png">
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: { 50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f' }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        * { -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        
+        .timeline-line { position: absolute; left: 20px; top: 40px; bottom: 0; width: 2px; background: #e5e7eb; }
+        .timeline-item { position: relative; padding-left: 56px; padding-bottom: 32px; }
+        .timeline-dot { position: absolute; left: 12px; width: 16px; height: 16px; border-radius: 50%; border: 3px solid #e5e7eb; background: white; z-index: 1; }
+        .timeline-item.active .timeline-dot { border-color: #f59e0b; background: #f59e0b; }
+        .timeline-item.completed .timeline-dot { border-color: #10b981; background: #10b981; }
+        
+        .phase-card { transition: all 0.3s; }
+        .phase-card:hover { transform: translateX(4px); }
+        
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 0.5s ease; }
+        
+        .skeleton { background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    
+    <!-- Header -->
+    <header class="bg-gradient-to-br from-primary-500 to-primary-600 text-white">
+        <div class="safe-top"></div>
+        <div class="px-6 py-8">
+            <div class="flex items-center justify-center mb-6">
+                <div class="w-20 h-20 bg-white/20 rounded-2xl flex items-center justify-center">
+                    <img src="https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png" alt="Babycrafts" class="w-14 h-14 object-contain">
+                </div>
+            </div>
+            
+            <h1 class="text-2xl font-bold text-center">Babycrafts</h1>
+            <p class="text-primary-100 text-center">Order Status Portal</p>
+        </div>
+    </header>
+
+    <!-- Login State -->
+    <div id="loginState" class="p-6">
+        <div class="max-w-md mx-auto">
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+                <h2 class="text-xl font-bold text-gray-900 mb-2">Volg uw order</h2>
+                <p class="text-gray-500 mb-6">Voer uw ordernummer en email in om de status van uw bestelling te bekijken.</p>
+                
+                <form id="portalLoginForm" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Ordernummer</label>
+                        <input type="text" id="portalOrderId" placeholder="Bijv: BC-2026-0001" required
+                               class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-primary-500 uppercase">
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Email adres</label>
+                        <input type="email" id="portalEmail" placeholder="uw@email.nl" required
+                               class="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    </div>
+                    
+                    <button type="submit" class="w-full py-4 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-xl shadow-lg transition-all active:scale-95">
+                        Status Bekijken
+                    </button>
+                </form>
+            </div>
+            
+            <div class="mt-6 text-center">
+                <p class="text-sm text-gray-500">Heeft u vragen? <a href="mailto:info@babycrafts.nl" class="text-primary-600 font-medium">Neem contact op</a></p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Order Detail State -->
+    <div id="orderState" class="hidden p-4 pb-24">
+        <div class="max-w-lg mx-auto space-y-4">
+            
+            <!-- Back Button -->
+            <button onclick="PortalApp.logout()" class="flex items-center gap-2 text-gray-600 hover:text-gray-900 font-medium">
+                <i data-lucide="arrow-left" class="w-5 h-5"></i>
+                <span>Terug</span>
+            </button>
+            
+            <!-- Order Info Card -->
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <p class="text-sm text-gray-500">Ordernummer</p>
+                        <p id="displayOrderNummer" class="text-xl font-bold text-gray-900">-</p>
+                    </div>
+                    <div id="statusBadge" class="px-4 py-2 bg-primary-100 text-primary-700 rounded-full text-sm font-semibold">
+                        In behandeling
+                    </div>
+                </div>
+                
+                <hr class="border-gray-100 mb-4">
+                
+                <div class="space-y-3">
+                    <div>
+                        <p class="text-sm text-gray-500">Product</p>
+                        <p id="displayProduct" class="font-medium text-gray-900">-</p>
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <p class="text-sm text-gray-500">Hoogte</p>
+                            <p id="displayHoogte" class="font-medium text-gray-900">-</p>
+                        </div>
+                        
+                        <div>
+                            <p class="text-sm text-gray-500">Sokkel</p>
+                            <p id="displaySokkel" class="font-medium text-gray-900">-</p>
+                        </div>
+                    </div>
+                    
+                    <div id="trackTraceSection" class="hidden">
+                        <p class="text-sm text-gray-500">Track & Trace</p>
+                        <a id="displayTrackTrace" href="#" target="_blank" class="inline-flex items-center gap-2 text-primary-600 font-medium hover:underline">
+                            <span id="trackTraceCode">-</span>
+                            <i data-lucide="external-link" class="w-4 h-4"></i>
+                        </a>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Timeline -->
+            <div class="bg-white rounded-2xl shadow-lg p-6">
+                <h3 class="font-bold text-gray-900 mb-6">Productie Status</h3>
+                
+                <div id="timelineContainer" class="relative">
+                    <div class="timeline-line"></div>
+                    <!-- Timeline items will be inserted here -->
+                </div>
+            </div>
+            
+            <!-- Contact Card -->
+            <div class="bg-gradient-to-br from-primary-50 to-primary-100 rounded-2xl p-6">
+                <div class="flex items-start gap-4">
+                    <div class="w-12 h-12 bg-primary-500 rounded-xl flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="message-circle" class="w-6 h-6 text-white"></i>
+                    </div>
+                    
+                    <div>
+                        <h4 class="font-bold text-gray-900">Heeft u vragen?</h4>
+                        <p class="text-gray-600 text-sm mt-1">We helpen u graag. Neem contact met ons op via email of telefoon.</p>
+                        
+                        <a href="mailto:info@babycrafts.nl" class="inline-flex items-center gap-2 mt-3 text-primary-700 font-medium hover:underline">
+                            <i data-lucide="mail" class="w-4 h-4"></i>
+                            <span>info@babycrafts.nl</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading State -->
+    <div id="loadingState" class="hidden fixed inset-0 bg-white z-50 flex items-center justify-center">
+        <div class="text-center">
+            <div class="w-16 h-16 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin mx-auto mb-4"></div>
+            <p class="text-gray-600">Order laden...</p>
+        </div>
+    </div>
+
+    <script>
+        // Portal App
+        const PortalApp = {
+            supabase: null,
+            currentOrder: null,
+            
+            fases: [
+                { id: 1, naam: 'Afspraak gemaakt', beschrijving: 'Uw order is aangemaakt' },
+                { id: 2, naam: 'Scan gemaakt', beschrijving: 'De echo scan is voltooid' },
+                { id: 3, naam: 'Scan bewerkt', beschrijving: 'Het 3D model is gemaakt' },
+                { id: 4, naam: 'Goedgekeurd', beschrijving: 'Uw goedkeuring is ontvangen' },
+                { id: 5, naam: 'Besteld', beschrijving: 'Besteld bij bronsgieterij' },
+                { id: 6, naam: 'Bronsgieterij', beschrijving: 'In productie bij de gieterij' },
+                { id: 7, naam: 'Retour atelier', beschrijving: 'Terug bij Babycrafts' },
+                { id: 8, naam: 'Afwerking', beschrijving: 'Het beeldje wordt afgewerkt' },
+                { id: 9, naam: 'Verzonden', beschrijving: 'Verzonden naar uw adres' },
+                { id: 10, naam: 'Afgerond', beschrijving: 'Order compleet' }
+            ],
+            
+            async init() {
+                // Initialize Supabase
+                this.supabase = supabase.createClient(
+                    'https://kjciqpjwfilnyzvisajf.supabase.co',
+                    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtqY2lxcGp3Zmlsbnl6dmlzYWpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MDYyNTI2NTksImV4cCI6MjAyMTgyODY1OX0.AF0rRQQaQzS4m9c4L5E0z4z5z5z5z5z5z5z5z5z5z5z'
+                );
+                
+                // Check for stored order
+                const savedOrder = localStorage.getItem('portalOrder');
+                if (savedOrder) {
+                    const { orderId, email } = JSON.parse(savedOrder);
+                    await this.loadOrder(orderId, email);
+                }
+                
+                // Setup form
+                document.getElementById('portalLoginForm').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    this.handleLogin();
+                });
+                
+                lucide.createIcons();
+            },
+            
+            async handleLogin() {
+                const orderId = document.getElementById('portalOrderId').value.trim().toUpperCase();
+                const email = document.getElementById('portalEmail').value.trim().toLowerCase();
+                
+                if (!orderId || !email) {
+                    this.showError('Vul alle velden in');
+                    return;
+                }
+                
+                await this.loadOrder(orderId, email);
+            },
+            
+            async loadOrder(orderId, email) {
+                this.showLoading(true);
+                
+                try {
+                    const { data, error } = await this.supabase
+                        .from('orders')
+                        .select('*')
+                        .eq('order_nummer', orderId)
+                        .eq('klant_email', email)
+                        .single();
+                    
+                    if (error || !data) {
+                        throw new Error('Order niet gevonden');
+                    }
+                    
+                    this.currentOrder = data;
+                    localStorage.setItem('portalOrder', JSON.stringify({ orderId, email }));
+                    
+                    this.renderOrder();
+                    this.showOrderState();
+                    
+                } catch (err) {
+                    this.showError('Order niet gevonden. Controleer uw ordernummer en email.');
+                } finally {
+                    this.showLoading(false);
+                }
+            },
+            
+            renderOrder() {
+                const order = this.currentOrder;
+                
+                // Basic info
+                document.getElementById('displayOrderNummer').textContent = order.order_nummer;
+                document.getElementById('displayProduct').textContent = `${order.collectie} - ${order.kleur_afwerking || 'Standaard'}`;
+                document.getElementById('displayHoogte').textContent = `${order.hoogte_cm} cm`;
+                document.getElementById('displaySokkel').textContent = order.sokkel;
+                
+                // Status badge
+                const isComplete = order.fase >= 10;
+                const badge = document.getElementById('statusBadge');
+                badge.textContent = isComplete ? 'Afgerond' : 'In behandeling';
+                badge.className = `px-4 py-2 rounded-full text-sm font-semibold ${isComplete ? 'bg-green-100 text-green-700' : 'bg-primary-100 text-primary-700'}`;
+                
+                // Track & Trace
+                if (order.track_trace_code) {
+                    document.getElementById('trackTraceSection').classList.remove('hidden');
+                    document.getElementById('trackTraceCode').textContent = order.track_trace_code;
+                    document.getElementById('displayTrackTrace').href = `https://postnl.nl/tracktrace/?B=${order.track_trace_code}`;
+                }
+                
+                // Timeline
+                this.renderTimeline(order.fase);
+                
+                lucide.createIcons();
+            },
+            
+            renderTimeline(currentFase) {
+                const container = document.getElementById('timelineContainer');
+                const line = container.querySelector('.timeline-line');
+                container.innerHTML = '';
+                container.appendChild(line);
+                
+                this.fases.forEach((fase, index) => {
+                    const isActive = fase.id === currentFase;
+                    const isCompleted = fase.id < currentFase;
+                    const isFuture = fase.id > currentFase;
+                    
+                    const item = document.createElement('div');
+                    item.className = `timeline-item ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`;
+                    
+                    item.innerHTML = `
+                        <div class="timeline-dot"></div>
+                        <div class="phase-card ${isActive ? 'bg-primary-50 border border-primary-200' : 'bg-gray-50'} rounded-xl p-4">
+                            <div class="flex items-center gap-3">
+                                ${isCompleted ? '<i data-lucide="check-circle" class="w-5 h-5 text-green-500"></i>' : ''}
+                                ${isActive ? '<i data-lucide="loader" class="w-5 h-5 text-primary-600 animate-spin"></i>' : ''}
+                                ${isFuture ? '<i data-lucide="circle" class="w-5 h-5 text-gray-300"></i>' : ''}
+                                
+                                <div class="flex-1">
+                                    <p class="font-semibold ${isActive ? 'text-primary-900' : isCompleted ? 'text-gray-900' : 'text-gray-400'}">
+                                        ${fase.naam}
+                                    </p>
+                                    <p class="text-sm ${isActive ? 'text-primary-600' : isCompleted ? 'text-gray-500' : 'text-gray-400'}">
+                                        ${fase.beschrijving}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    
+                    container.appendChild(item);
+                });
+            },
+            
+            showLoginState() {
+                document.getElementById('loginState').classList.remove('hidden');
+                document.getElementById('orderState').classList.add('hidden');
+            },
+            
+            showOrderState() {
+                document.getElementById('loginState').classList.add('hidden');
+                document.getElementById('orderState').classList.remove('hidden');
+            },
+            
+            showLoading(show) {
+                document.getElementById('loadingState').classList.toggle('hidden', !show);
+            },
+            
+            showError(message) {
+                alert(message);
+            },
+            
+            logout() {
+                localStorage.removeItem('portalOrder');
+                this.currentOrder = null;
+                this.showLoginState();
+                document.getElementById('portalLoginForm').reset();
+            }
+        };
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            PortalApp.init();
+        });
+    </script>
+</body>
+</html>
