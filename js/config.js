@@ -1,6 +1,5 @@
 /**
  * CONFIGURATION - Babycrafts Atelier Pro V2
- * Environment-based configuration - NO HARDCODED CREDENTIALS
  */
 
 const CONFIG = {

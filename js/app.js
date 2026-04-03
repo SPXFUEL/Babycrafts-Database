@@ -25,6 +25,14 @@ const App = {
         // Initialize modules
         Repository.initialize(this.supabase);
         Audit.initialize();
+        
+        // Initialize OrdersModule (important!)
+        if (OrdersModule) {
+            await OrdersModule.initialize();
+        }
+        if (TodosModule) {
+            await TodosModule.initialize();
+        }
 
         // Check authentication
         await this.checkAuth();
@@ -331,23 +339,42 @@ const App = {
     },
 
     // Navigate to page
-    navigateTo(page) {
+    navigate(page) {
         this.currentPage = page;
         
+        // Update page title
+        const titles = {
+            'dashboard': 'Dashboard',
+            'orders': 'Orders',
+            'archief': 'Archief',
+            'nazorg': 'Nazorg',
+            'todos': 'Taken',
+            'time': 'Tijdregistratie',
+            'settings': 'Instellingen'
+        };
+        document.getElementById('pageTitle').textContent = titles[page] || 'Babycrafts';
+        
         // Update nav active states
-        document.querySelectorAll('[data-page]').forEach(btn => {
-            btn.classList.toggle('active', btn.dataset.page === page);
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            const isActive = btn.dataset.page === page;
+            btn.classList.toggle('text-primary-600', isActive);
+            btn.classList.toggle('text-gray-400', !isActive);
         });
         
-        // Close mobile menu
-        document.getElementById('sideMenu')?.classList.add('-translate-x-full');
+        // Show/hide search bar
+        document.getElementById('searchBar').classList.toggle('hidden', page !== 'orders');
+        
+        // Close side menu
+        document.getElementById('sideMenu').classList.remove('open');
+        document.getElementById('menuOverlay').classList.remove('visible');
         
         this.renderCurrentPage();
     },
 
     // Render current page
     renderCurrentPage() {
-        const content = document.getElementById('pageContent');
+        const content = document.getElementById('mainContent');
+        if (!content) return;
         
         switch (this.currentPage) {
             case 'dashboard':
