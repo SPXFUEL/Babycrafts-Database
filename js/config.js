@@ -1,24 +1,14 @@
 /**
  * CONFIGURATION - Babycrafts Atelier Pro V2
- * Environment-based configuration - NO HARDCODED CREDENTIALS
  */
 
 const CONFIG = {
-    // Supabase configuration - loaded from environment
-    get SUPABASE_URL() {
-        // In production, this should come from environment variables
-        // For now, use localStorage override or default
-        return localStorage.getItem('babycrafts_supabase_url') || 'https://awvbaxjmabaqkqminzwx.supabase.co';
-    },
-    
-    get SUPABASE_KEY() {
-        return localStorage.getItem('babycrafts_supabase_key') || '';
-    },
+    // Supabase configuration
+    SUPABASE_URL: 'https://awvbaxjmabaqkqminzwx.supabase.co',
+    SUPABASE_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF3dmJheGptYWJhcWtxbWluend4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE4NjgwMTYsImV4cCI6MjA4NzQ0NDAxNn0.61KTuB5F6Mb3zNHoo6ZERwTt63lF6HndWDVsgXxIrVY',
     
     // Admin configuration
-    get ADMIN_EMAIL() {
-        return localStorage.getItem('babycrafts_admin_email') || 'info@babycrafts.nl';
-    },
+    ADMIN_EMAIL: 'info@babycrafts.nl',
     
     VERSION: '3.0.0',
     DEFAULT_LANGUAGE: 'nl',
