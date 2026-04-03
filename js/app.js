@@ -25,6 +25,14 @@ const App = {
         // Initialize modules
         Repository.initialize(this.supabase);
         Audit.initialize();
+        
+        // Initialize OrdersModule (important!)
+        if (OrdersModule) {
+            await OrdersModule.initialize();
+        }
+        if (TodosModule) {
+            await TodosModule.initialize();
+        }
 
         // Check authentication
         await this.checkAuth();
