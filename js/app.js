@@ -8,6 +8,9 @@ const App = {
     currentPage: 'dashboard',
     supabase: null,
     isOnline: true,
+    pinKeypadSetup: false,
+    keyboardListenerAdded: false,
+    currentPin: '',
 
     // Initialize application
     async initialize() {
@@ -105,39 +108,65 @@ const App = {
         // Reset PIN
         this.currentPin = '';
         this.updatePinDisplay();
+        this.hidePinError();
         
-        // Setup PIN keypad
-        this.setupPinKeypad();
+        // Setup PIN keypad (only once)
+        if (!this.pinKeypadSetup) {
+            this.setupPinKeypad();
+            this.pinKeypadSetup = true;
+        }
     },
     
     // Setup PIN keypad
     setupPinKeypad() {
-        // Number keys
-        document.querySelectorAll('.pin-key').forEach(key => {
-            key.addEventListener('click', () => {
+        // Use event delegation on the keypad container instead of individual buttons
+        const keypad = document.querySelector('#pinLogin .grid');
+        if (!keypad) return;
+        
+        // Remove old listeners by cloning
+        const newKeypad = keypad.cloneNode(true);
+        keypad.parentNode.replaceChild(newKeypad, keypad);
+        
+        // Single click handler for the entire keypad
+        newKeypad.addEventListener('click', (e) => {
+            const key = e.target.closest('.pin-key');
+            if (key) {
+                e.preventDefault();
+                e.stopPropagation();
                 const digit = key.dataset.key;
-                this.handlePinDigit(digit);
-            });
-        });
-        
-        // Backspace
-        const backspace = document.getElementById('pinBackspace');
-        if (backspace) {
-            backspace.addEventListener('click', () => {
-                this.handlePinBackspace();
-            });
-        }
-        
-        // Keyboard support
-        document.addEventListener('keydown', (e) => {
-            if (!document.getElementById('loginScreen').classList.contains('hidden')) {
-                if (e.key >= '0' && e.key <= '9') {
-                    this.handlePinDigit(e.key);
-                } else if (e.key === 'Backspace') {
-                    this.handlePinBackspace();
+                if (digit) {
+                    this.handlePinDigit(digit);
                 }
             }
+            
+            const backspace = e.target.closest('#pinBackspace');
+            if (backspace) {
+                e.preventDefault();
+                e.stopPropagation();
+                this.handlePinBackspace();
+            }
         });
+        
+        // Keyboard support (only once)
+        if (!this.keyboardListenerAdded) {
+            document.addEventListener('keydown', (e) => {
+                if (!document.getElementById('loginScreen').classList.contains('hidden')) {
+                    if (e.key >= '0' && e.key <= '9') {
+                        e.preventDefault();
+                        this.handlePinDigit(e.key);
+                    } else if (e.key === 'Backspace') {
+                        e.preventDefault();
+                        this.handlePinBackspace();
+                    }
+                }
+            });
+            this.keyboardListenerAdded = true;
+        }
+        
+        // Re-initialize icons
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
     },
     
     // Handle PIN digit
