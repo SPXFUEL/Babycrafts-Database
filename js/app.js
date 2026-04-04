@@ -1407,7 +1407,20 @@ const App = {
             document.getElementById('newOrderForm')?.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 
-                // CHECK: Is user ingelogd?
+                // BELANGRIJK: Zorg dat sessie altijd beschikbaar is
+                if (!this.currentUser) {
+                    console.log('Sessie niet in memory, probeer uit localStorage te laden...');
+                    const savedSession = localStorage.getItem('babycrafts_session');
+                    if (savedSession) {
+                        try {
+                            this.currentUser = JSON.parse(savedSession);
+                            console.log('Sessie hersteld uit localStorage:', this.currentUser);
+                        } catch (e) {
+                            console.error('Kon sessie niet parsen:', e);
+                        }
+                    }
+                }
+                
                 console.log('=== SUBMIT HANDLER START ===');
                 console.log('this.currentUser:', this.currentUser);
                 console.log('this.currentUser?.id:', this.currentUser?.id);
@@ -1415,6 +1428,7 @@ const App = {
                 if (!this.currentUser?.id) {
                     console.error('❌ Geen gebruiker ingelogd bij submit!');
                     UI.showToast('❌ Je bent niet ingelogd. Log opnieuw in.', 'error', 5000);
+                    this.showLoginScreen();
                     return;
                 }
                 
