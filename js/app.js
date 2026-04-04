@@ -118,18 +118,23 @@ const App = {
         this.updatePinDisplay();
         this.hidePinError();
         
-        // Setup PIN keypad (only once)
-        if (!this.pinKeypadSetup) {
-            this.setupPinKeypad();
-            this.pinKeypadSetup = true;
-        }
+        // Setup PIN keypad - ALWAYS call this to ensure keypad works
+        console.log('Setting up PIN keypad from showLoginScreen');
+        this.setupPinKeypad();
     },
     
     // Setup PIN keypad
     setupPinKeypad() {
+        console.log('setupPinKeypad called');
+        
         // Use event delegation on the keypad container instead of individual buttons
         const keypad = document.querySelector('#pinLogin .grid');
-        if (!keypad) return;
+        console.log('Keypad element:', keypad);
+        
+        if (!keypad) {
+            console.error('Keypad element niet gevonden!');
+            return;
+        }
         
         // Remove old listeners by cloning
         const newKeypad = keypad.cloneNode(true);
@@ -137,11 +142,14 @@ const App = {
         
         // Single click handler for the entire keypad
         newKeypad.addEventListener('click', (e) => {
+            console.log('Keypad click detected:', e.target);
+            
             const key = e.target.closest('.pin-key');
             if (key) {
                 e.preventDefault();
                 e.stopPropagation();
                 const digit = key.dataset.key;
+                console.log('PIN key clicked:', digit);
                 if (digit) {
                     this.handlePinDigit(digit);
                 }
@@ -151,6 +159,7 @@ const App = {
             if (backspace) {
                 e.preventDefault();
                 e.stopPropagation();
+                console.log('Backspace clicked');
                 this.handlePinBackspace();
             }
         });
@@ -175,18 +184,27 @@ const App = {
         if (typeof lucide !== 'undefined') {
             lucide.createIcons();
         }
+        
+        console.log('setupPinKeypad complete');
     },
     
     // Handle PIN digit
     handlePinDigit(digit) {
+        console.log('handlePinDigit called with:', digit);
+        console.log('currentPin before:', this.currentPin);
+        
         if (this.currentPin.length < 4) {
             this.currentPin += digit;
+            console.log('currentPin after:', this.currentPin);
             this.updatePinDisplay();
             
             // Check if complete
             if (this.currentPin.length === 4) {
+                console.log('PIN complete, verifying...');
                 setTimeout(() => this.verifyPin(), 200);
             }
+        } else {
+            console.log('PIN already 4 digits');
         }
     },
     
