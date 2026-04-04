@@ -176,6 +176,50 @@ const OrdersModule = {
     },
 
     /**
+     * Update order
+     */
+    async update(orderId, formData, userId) {
+        try {
+            console.log('OrdersModule.update called with:', { orderId, formData, userId });
+            
+            const updates = {
+                klant_naam: formData.klant_naam?.trim(),
+                klant_email: formData.klant_email?.trim(),
+                klant_telefoon: formData.klant_telefoon?.trim() || null,
+                straat: formData.straat?.trim() || null,
+                huisnummer: formData.huisnummer?.trim() || null,
+                postcode: formData.postcode?.trim() || null,
+                plaats: formData.plaats?.trim() || null,
+                scan_datum: formData.scan_datum || null,
+                hoogte_cm: parseInt(formData.hoogte_cm) || 20,
+                collectie: formData.collectie,
+                kleur_afwerking: formData.kleur_afwerking?.trim() || null,
+                sokkel: formData.sokkel || 'Zonder',
+                extra_notities: formData.extra_notities?.trim() || null,
+                deadline: formData.deadline || null
+            };
+            
+            console.log('Order updates prepared:', updates);
+            
+            const order = await Repository.orders.update(orderId, updates, userId);
+            
+            console.log('Repository update response:', order);
+            
+            // Update local cache
+            const index = this.orders.findIndex(o => o.order_id === orderId);
+            if (index !== -1) {
+                this.orders[index] = { ...this.orders[index], ...order };
+            }
+            
+            return order;
+            
+        } catch (error) {
+            console.error('OrdersModule.update error:', error);
+            throw error;
+        }
+    },
+
+    /**
      * Update order fase
      */
     async updateFase(orderId, newFase, userId) {
