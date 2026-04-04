@@ -174,6 +174,8 @@ const Repository = {
          */
         async create(orderData, userId) {
             try {
+                console.log('Repository.orders.create called with:', { orderData, userId });
+                
                 const { data, error } = await Repository.supabase
                     .from('orders')
                     .insert([{
@@ -185,7 +187,12 @@ const Repository = {
                     .select()
                     .single();
                     
-                if (error) throw error;
+                if (error) {
+                    console.error('Supabase insert error:', error);
+                    throw error;
+                }
+                
+                console.log('Supabase insert success:', data);
                 
                 // Audit log
                 if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
@@ -198,7 +205,9 @@ const Repository = {
                 return data;
                 
             } catch (error) {
+                console.error('Repository.orders.create catch:', error);
                 Repository.handleError(error, 'orders.create');
+                throw error; // Re-throw to propagate to caller
             }
         },
 

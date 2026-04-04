@@ -328,6 +328,15 @@ const App = {
             e.preventDefault();
             this.handleNewOrder(e.target);
         });
+
+        // Search with debounce
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            const debouncedSearch = Utils.debounce((value) => {
+                this.handleSearch(value);
+            }, 300);
+            searchInput.addEventListener('input', (e) => debouncedSearch(e.target.value));
+        }
     },
 
     // Logout
@@ -1188,7 +1197,6 @@ const App = {
     // Show new order form
     showNewOrderForm() {
         const collecties = ['Figura', 'Arte-Lumina', 'Natura-Alba', 'Ouder & Kind', 'Babybeeld', 'Atelier-Bronze', 'Gegoten Brons', 'Aangepast'];
-        const kleuren = ['Classic White', 'Soft Cream', 'Warm Sand', 'Modern Grey', 'Midnight Black', 'Custom'];
 
         UI.showBottomSheet({
             title: 'Nieuwe Order',
@@ -1240,10 +1248,7 @@ const App = {
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Kleurafwerking</label>
-                        <select name="kleur_afwerking" class="form-select">
-                            <option value="">Standaard</option>
-                            ${kleuren.map(k => `<option value="${k}">${k}</option>`).join('')}
-                        </select>
+                        <input type="text" name="kleur_afwerking" placeholder="Bijv. Classic White, Soft Cream..." class="form-input">
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Sokkel</label>
@@ -1281,6 +1286,10 @@ const App = {
                 e.preventDefault();
                 const formData = Object.fromEntries(new FormData(e.target));
                 
+                // Debug logging
+                console.log('Form data:', formData);
+                console.log('Current user:', this.currentUser);
+                
                 // Show loading state
                 const submitBtn = e.target.querySelector('button[type="submit"]');
                 const originalText = submitBtn?.textContent || 'Opslaan';
@@ -1290,13 +1299,17 @@ const App = {
                 }
                 
                 try {
-                    await OrdersModule.create(formData, this.currentUser?.id);
+                    const order = await OrdersModule.create(formData, this.currentUser?.id);
+                    console.log('Created order:', order);
                     UI.closeBottomSheet();
                     UI.showToast('Order aangemaakt', 'success');
-                    this.renderOrdersPage();
+                    // Reload orders from server to ensure sync
+                    await OrdersModule.load();
+                    this.renderCurrentPage();
                 } catch (error) {
                     console.error('Create order error:', error);
                     const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij aanmaken order';
+                    console.error('Error details:', window.lastRepositoryError);
                     UI.showToast(errorMsg, 'error', 5000);
                 } finally {
                     // Restore button state

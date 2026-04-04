@@ -189,7 +189,7 @@
             <div class="relative">
                 <i data-lucide="search" class="w-5 h-5 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2"></i>
                 <input type="text" id="searchInput" placeholder="Zoek orders..." 
-                       class="search-input" oninput="App.handleSearch(this.value)">
+                       class="search-input">
             </div>
         </div>
 
@@ -400,7 +400,7 @@
     </div>
 
     <!-- CONFIRMATION MODAL -->
-    <div id="confirmModal" class="fixed inset-0 z-[60] hidden flex items-center justify-center p-4">
+    <div id="confirmModal" class="fixed inset-0 z-[60] hidden items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/50" onclick="App.closeConfirmModal()"></div>
         <div class="relative bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
             <div class="text-center">

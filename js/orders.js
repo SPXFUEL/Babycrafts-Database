@@ -118,6 +118,8 @@ const OrdersModule = {
      */
     async create(formData, userId) {
         try {
+            console.log('OrdersModule.create called with:', { formData, userId });
+            
             const orderId = Utils.generateOrderId(this.orders);
             
             // Handle custom collectie
@@ -141,11 +143,11 @@ const OrdersModule = {
                 hoogte_cm: parseInt(formData.hoogte_cm) || 20,
                 collectie: collectie,
                 kleur_afwerking: formData.kleur_afwerking?.trim() || null,
-                sokkel: formData.sokkel,
+                sokkel: formData.sokkel || 'Zonder',
                 sokkel_details: formData.sokkel_details?.trim() || null,
                 extra_notities: formData.extra_notities?.trim() || null,
                 huidige_fase: 0,
-                toestemming_delen: formData.toestemming_delen || false,
+                toestemming_delen: formData.toestemming_delen === 'on' || formData.toestemming_delen === true,
                 workflow: workflow,
                 deadline: formData.deadline || null,
                 verantwoordelijke_user: userId,
@@ -154,7 +156,11 @@ const OrdersModule = {
                 public_token: Utils.generatePublicToken()
             };
             
+            console.log('Order data prepared:', orderData);
+            
             const order = await Repository.orders.create(orderData, userId);
+            
+            console.log('Repository response:', order);
             
             if (order) {
                 this.orders.unshift(order);
@@ -164,6 +170,7 @@ const OrdersModule = {
             return order;
             
         } catch (error) {
+            console.error('OrdersModule.create error:', error);
             throw error;
         }
     },
