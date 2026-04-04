@@ -349,6 +349,16 @@ const App = {
 
     // Handle new order form submission (from index.html bottom sheet)
     async handleNewOrder(form) {
+        console.log('=== handleNewOrder START ===');
+        console.log('currentUser voor submit:', this.currentUser);
+        
+        if (!this.currentUser) {
+            console.error('Geen currentUser bij start handleNewOrder!');
+            UI.showToast('Sessie verlopen. Log opnieuw in.', 'error');
+            this.showLoginScreen();
+            return;
+        }
+        
         const formData = Object.fromEntries(new FormData(form));
         
         // Calculate deadline (6 weeks from scan date)
@@ -359,9 +369,52 @@ const App = {
             formData.deadline = deadline.toISOString().split('T')[0];
         }
         
-        // Debug logging
         console.log('handleNewOrder - Form data:', formData);
         console.log('handleNewOrder - Current user:', this.currentUser);
+
+        // Show loading state
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalText = submitBtn?.textContent || 'Order Aanmaken';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Bezig...';
+        }
+        
+        try {
+            console.log('Roep OrdersModule.create aan...');
+            const order = await OrdersModule.create(formData, this.currentUser?.id);
+            console.log('OrdersModule.create resultaat:', order);
+            
+            if (order) {
+                UI.showToast('Order aangemaakt', 'success');
+                this.closeNewOrder();
+                await OrdersModule.load();
+                this.renderCurrentPage();
+            } else {
+                console.error('Order is null/undefined');
+                UI.showToast('Order kon niet worden aangemaakt', 'error');
+            }
+        } catch (error) {
+            console.error('handleNewOrder - ERROR:', error);
+            console.error('Error details:', error?.message, error?.stack);
+            const errorMsg = window.lastRepositoryError?.message || error?.message || 'Fout bij aanmaken order';
+            UI.showToast(errorMsg, 'error', 5000);
+            
+            // BELANGRIJK: Niet naar login scherm gaan bij error!
+            // Alleen als de sessie echt verlopen is
+            if (error?.message?.includes('auth') || error?.message?.includes('unauthorized')) {
+                console.log('Auth error detected, showing login screen');
+                this.showLoginScreen();
+            }
+        } finally {
+            // Restore button state
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
+            console.log('=== handleNewOrder END ===');
+        }
+    },
         
         // Show loading state
         const submitBtn = form.querySelector('button[type="submit"]');
@@ -1355,8 +1408,12 @@ const App = {
                 e.preventDefault();
                 
                 // CHECK: Is user ingelogd?
+                console.log('=== SUBMIT HANDLER START ===');
+                console.log('this.currentUser:', this.currentUser);
+                console.log('this.currentUser?.id:', this.currentUser?.id);
+                
                 if (!this.currentUser?.id) {
-                    console.error('Geen gebruiker ingelogd!');
+                    console.error('❌ Geen gebruiker ingelogd bij submit!');
                     UI.showToast('❌ Je bent niet ingelogd. Log opnieuw in.', 'error', 5000);
                     return;
                 }
@@ -1370,9 +1427,7 @@ const App = {
                 }
                 
                 // Debug logging
-                console.log('=== ORDER AANMAKEN ===');
                 console.log('Form data:', formData);
-                console.log('Current user:', this.currentUser);
                 console.log('User ID:', this.currentUser?.id);
                 
                 // Show loading state
@@ -1386,19 +1441,37 @@ const App = {
                 try {
                     console.log('Roep OrdersModule.create aan...');
                     const order = await OrdersModule.create(formData, this.currentUser?.id);
-                    console.log('Order aangemaakt:', order);
+                    console.log('Order resultaat:', order);
                     
                     if (order) {
                         UI.showToast('✅ Order succesvol aangemaakt!', 'success');
                         UI.closeBottomSheet();
+                        console.log('currentUser na create:', this.currentUser);
                         console.log('Herlaad orders...');
                         await OrdersModule.load();
-                        console.log('Render pagina opnieuw...');
+                        console.log('currentUser na load:', this.currentUser);
+                        console.log('Render pagina...');
                         this.renderCurrentPage();
                         console.log('=== KLAAR ===');
                     } else {
-                        console.error('Order is null/undefined na create');
-                        UI.showToast('❌ Order kon niet worden aangemaakt (geen response)', 'error', 5000);
+                        console.error('Order is null/undefined');
+                        UI.showToast('❌ Order kon niet worden aangemaakt', 'error', 5000);
+                    }
+                } catch (error) {
+                    console.error('=== FOUT ===');
+                    console.error('Error:', error);
+                    console.error('Error message:', error?.message);
+                    console.error('currentUser bij error:', this.currentUser);
+                    
+                    const errorMsg = window.lastRepositoryError?.message || error?.message || 'Onbekende fout';
+                    UI.showToast('❌ ' + errorMsg, 'error', 5000);
+                } finally {
+                    if (submitBtn) {
+                        submitBtn.disabled = false;
+                        submitBtn.textContent = originalText;
+                    }
+                }
+            });
                     }
                 } catch (error) {
                     console.error('=== FOUT BIJ AANMAKEN ORDER ===');
