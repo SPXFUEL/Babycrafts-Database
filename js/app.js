@@ -1353,6 +1353,14 @@ const App = {
 
             document.getElementById('newOrderForm')?.addEventListener('submit', async (e) => {
                 e.preventDefault();
+                
+                // CHECK: Is user ingelogd?
+                if (!this.currentUser?.id) {
+                    console.error('Geen gebruiker ingelogd!');
+                    UI.showToast('❌ Je bent niet ingelogd. Log opnieuw in.', 'error', 5000);
+                    return;
+                }
+                
                 const formData = Object.fromEntries(new FormData(e.target));
                 
                 // Add calculated deadline if scan date is set
@@ -1362,30 +1370,45 @@ const App = {
                 }
                 
                 // Debug logging
+                console.log('=== ORDER AANMAKEN ===');
                 console.log('Form data:', formData);
                 console.log('Current user:', this.currentUser);
+                console.log('User ID:', this.currentUser?.id);
                 
                 // Show loading state
                 const submitBtn = e.target.querySelector('button[type="submit"]');
                 const originalText = submitBtn?.textContent || 'Opslaan';
                 if (submitBtn) {
                     submitBtn.disabled = true;
-                    submitBtn.textContent = 'Bezig...';
+                    submitBtn.textContent = 'Bezig met opslaan...';
                 }
                 
                 try {
+                    console.log('Roep OrdersModule.create aan...');
                     const order = await OrdersModule.create(formData, this.currentUser?.id);
-                    console.log('Created order:', order);
-                    UI.closeBottomSheet();
-                    UI.showToast('Order aangemaakt', 'success');
-                    // Reload orders from server to ensure sync
-                    await OrdersModule.load();
-                    this.renderCurrentPage();
+                    console.log('Order aangemaakt:', order);
+                    
+                    if (order) {
+                        UI.showToast('✅ Order succesvol aangemaakt!', 'success');
+                        UI.closeBottomSheet();
+                        console.log('Herlaad orders...');
+                        await OrdersModule.load();
+                        console.log('Render pagina opnieuw...');
+                        this.renderCurrentPage();
+                        console.log('=== KLAAR ===');
+                    } else {
+                        console.error('Order is null/undefined na create');
+                        UI.showToast('❌ Order kon niet worden aangemaakt (geen response)', 'error', 5000);
+                    }
                 } catch (error) {
-                    console.error('Create order error:', error);
-                    const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij aanmaken order';
-                    console.error('Error details:', window.lastRepositoryError);
-                    UI.showToast(errorMsg, 'error', 5000);
+                    console.error('=== FOUT BIJ AANMAKEN ORDER ===');
+                    console.error('Error object:', error);
+                    console.error('Error message:', error?.message);
+                    console.error('Error stack:', error?.stack);
+                    console.error('window.lastRepositoryError:', window.lastRepositoryError);
+                    
+                    const errorMsg = window.lastRepositoryError?.message || error?.message || 'Onbekende fout bij aanmaken order';
+                    UI.showToast('❌ ' + errorMsg, 'error', 5000);
                 } finally {
                     // Restore button state
                     if (submitBtn) {
