@@ -218,6 +218,7 @@ const App = {
     // Update PIN display
     updatePinDisplay() {
         const dots = document.querySelectorAll('.pin-dot');
+        console.log('updatePinDisplay - dots found:', dots.length);
         dots.forEach((dot, index) => {
             if (index < this.currentPin.length) {
                 dot.textContent = '•';
