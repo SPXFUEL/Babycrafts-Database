@@ -347,6 +347,64 @@ const App = {
         UI.showToast('Uitgelogd', 'info');
     },
 
+    // Handle new order form submission (from index.html bottom sheet)
+    async handleNewOrder(form) {
+        const formData = Object.fromEntries(new FormData(form));
+        
+        // Calculate deadline (6 weeks from scan date)
+        if (formData.scan_datum) {
+            const scanDate = new Date(formData.scan_datum);
+            const deadline = new Date(scanDate);
+            deadline.setDate(deadline.getDate() + 42); // 6 weeks
+            formData.deadline = deadline.toISOString().split('T')[0];
+        }
+        
+        // Debug logging
+        console.log('handleNewOrder - Form data:', formData);
+        console.log('handleNewOrder - Current user:', this.currentUser);
+        
+        // Show loading state
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalText = submitBtn?.textContent || 'Order Aanmaken';
+        if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Bezig...';
+        }
+        
+        try {
+            const order = await OrdersModule.create(formData, this.currentUser?.id);
+            console.log('handleNewOrder - Created order:', order);
+            
+            if (order) {
+                UI.showToast('Order aangemaakt', 'success');
+                this.closeNewOrder();
+                await OrdersModule.load();
+                this.renderCurrentPage();
+            } else {
+                UI.showToast('Order kon niet worden aangemaakt', 'error');
+            }
+        } catch (error) {
+            console.error('handleNewOrder - Error:', error);
+            const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij aanmaken order';
+            console.error('handleNewOrder - Error details:', window.lastRepositoryError);
+            UI.showToast(errorMsg, 'error', 5000);
+        } finally {
+            // Restore button state
+            if (submitBtn) {
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
+        }
+    },
+
+    // Close new order sheet
+    closeNewOrder() {
+        const sheet = document.getElementById('newOrderSheet');
+        if (sheet) {
+            sheet.classList.remove('active');
+        }
+    },
+
     // Navigate to page
     navigate(page) {
         this.currentPage = page;
@@ -1259,12 +1317,9 @@ const App = {
                         </select>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
-                        <input type="date" name="deadline" class="form-input">
-                    </div>
-                    <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Scan Datum</label>
-                        <input type="date" name="scan_datum" class="form-input">
+                        <input type="date" name="scan_datum" id="scanDatumInput" class="form-input">
+                        <p class="text-xs text-gray-500 mt-1">Deadline wordt automatisch 6 weken na scandatum</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Extra notities</label>
@@ -1282,9 +1337,29 @@ const App = {
         });
 
         setTimeout(() => {
+            // Add deadline calculation when scan date changes
+            const scanDatumInput = document.getElementById('scanDatumInput');
+            if (scanDatumInput) {
+                scanDatumInput.addEventListener('change', (e) => {
+                    if (e.target.value) {
+                        const scanDate = new Date(e.target.value);
+                        const deadline = new Date(scanDate);
+                        deadline.setDate(deadline.getDate() + 42); // 6 weeks = 42 days
+                        // Store deadline in a data attribute for form submission
+                        e.target.dataset.deadline = deadline.toISOString().split('T')[0];
+                    }
+                });
+            }
+
             document.getElementById('newOrderForm')?.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const formData = Object.fromEntries(new FormData(e.target));
+                
+                // Add calculated deadline if scan date is set
+                const scanDatumInput = document.getElementById('scanDatumInput');
+                if (scanDatumInput?.dataset.deadline) {
+                    formData.deadline = scanDatumInput.dataset.deadline;
+                }
                 
                 // Debug logging
                 console.log('Form data:', formData);
