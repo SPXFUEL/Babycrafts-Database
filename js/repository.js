@@ -219,6 +219,12 @@ const Repository = {
                     
                 if (error) {
                     console.error('Supabase insert error:', error);
+                    console.error('Error details:', {
+                        code: error.code,
+                        message: error.message,
+                        details: error.details,
+                        hint: error.hint
+                    });
                     throw error;
                 }
                 
