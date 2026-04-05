@@ -174,6 +174,7 @@ const Repository = {
          */
         async create(orderData, userId) {
             try {
+                alert('DEBUG Repository: Starting create...');
                 console.log('Repository.orders.create called with:', { orderData, userId });
                 
                 // Build insert data - only include fields that exist in database
@@ -201,7 +202,7 @@ const Repository = {
                     public_token: orderData.public_token
                 };
                 
-                console.log('Inserting order:', insertData);
+                alert('DEBUG Repository: About to insert...');
                 
                 const { data, error } = await Repository.supabase
                     .from('orders')
@@ -210,24 +211,19 @@ const Repository = {
                     .single();
                     
                 if (error) {
+                    alert('DEBUG Repository ERROR: ' + error.message);
                     console.error('Supabase insert error:', error);
-                    // Show error in UI
-                    const errorMsg = `DB Error: ${error.code} - ${error.message}`;
-                    if (window.UI) {
-                        UI.showToast(errorMsg, 'error', 10000);
-                    }
-                    throw new Error(errorMsg);
+                    throw new Error('DB Error: ' + error.message);
                 }
                 
+                alert('DEBUG Repository: SUCCESS! Order ID: ' + (data?.order_id || 'unknown'));
                 console.log('Supabase insert success:', data);
+                
                 return data;
                 
             } catch (error) {
+                alert('DEBUG Repository CATCH: ' + (error?.message || 'Unknown error'));
                 console.error('Repository.orders.create catch:', error);
-                const errorMsg = error.message || 'Database error';
-                if (window.UI) {
-                    UI.showToast(`Fout: ${errorMsg}`, 'error', 10000);
-                }
                 throw error;
             }
         },
