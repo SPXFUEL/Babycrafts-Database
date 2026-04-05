@@ -181,33 +181,25 @@ const Repository = {
                     order_id: orderData.order_id,
                     klant_naam: orderData.klant_naam,
                     klant_email: orderData.klant_email,
-                    klant_telefoon: orderData.klant_telefoon,
-                    straat: orderData.straat,
-                    huisnummer: orderData.huisnummer,
-                    postcode: orderData.postcode,
-                    plaats: orderData.plaats,
-                    scan_datum: orderData.scan_datum,
-                    hoogte_cm: orderData.hoogte_cm,
+                    klant_telefoon: orderData.klant_telefoon || null,
+                    straat: orderData.straat || null,
+                    huisnummer: orderData.huisnummer || null,
+                    postcode: orderData.postcode || null,
+                    plaats: orderData.plaats || null,
+                    scan_datum: orderData.scan_datum || null,
+                    hoogte_cm: parseInt(orderData.hoogte_cm) || 20,
                     collectie: orderData.collectie,
-                    kleur_afwerking: orderData.kleur_afwerking,
-                    sokkel: orderData.sokkel,
-                    sokkel_details: orderData.sokkel_details,
-                    extra_notities: orderData.extra_notities,
-                    huidige_fase: orderData.huidige_fase,
-                    toestemming_delen: orderData.toestemming_delen,
+                    kleur_afwerking: orderData.kleur_afwerking || null,
+                    sokkel: orderData.sokkel || 'Zonder',
+                    sokkel_details: orderData.sokkel_details || null,
+                    extra_notities: orderData.extra_notities || null,
+                    huidige_fase: 0,
+                    toestemming_delen: orderData.toestemming_delen === true || orderData.toestemming_delen === 'on',
                     workflow: orderData.workflow,
-                    deadline: orderData.deadline,
-                    status: orderData.status,
-                    public_token: orderData.public_token,
-                    created_at: new Date().toISOString(),
-                    updated_at: new Date().toISOString()
+                    deadline: orderData.deadline || null,
+                    status: 'active',
+                    public_token: orderData.public_token
                 };
-                
-                // Only set created_by if it's a real Supabase UUID, not a local user
-                // Local PIN users (local_*) will have null created_by
-                if (userId && !userId.startsWith('local_')) {
-                    insertData.created_by = userId;
-                }
                 
                 console.log('Inserting order:', insertData);
                 
@@ -219,31 +211,23 @@ const Repository = {
                     
                 if (error) {
                     console.error('Supabase insert error:', error);
-                    console.error('Error details:', {
-                        code: error.code,
-                        message: error.message,
-                        details: error.details,
-                        hint: error.hint
-                    });
-                    throw error;
+                    // Show error in UI
+                    const errorMsg = `DB Error: ${error.code} - ${error.message}`;
+                    if (window.UI) {
+                        UI.showToast(errorMsg, 'error', 10000);
+                    }
+                    throw new Error(errorMsg);
                 }
                 
                 console.log('Supabase insert success:', data);
-                
-                // Audit log (includes user info for local users)
-                if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-                    Audit.log('create', 'order', orderData.order_id, { 
-                        klant: orderData.klant_naam,
-                        collectie: orderData.collectie,
-                        by: userId || 'unknown'
-                    });
-                }
-                
                 return data;
                 
             } catch (error) {
                 console.error('Repository.orders.create catch:', error);
-                Repository.handleError(error, 'orders.create');
+                const errorMsg = error.message || 'Database error';
+                if (window.UI) {
+                    UI.showToast(`Fout: ${errorMsg}`, 'error', 10000);
+                }
                 throw error;
             }
         },
