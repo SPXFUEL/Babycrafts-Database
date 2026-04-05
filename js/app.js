@@ -1381,9 +1381,16 @@ const App = {
             `
         });
 
+        // Debug: check if bottom sheet is shown
+        alert('DEBUG: showNewOrderForm executed');
+        
         setTimeout(() => {
+            alert('DEBUG: setTimeout running');
+            
             // Add deadline calculation when scan date changes
             const scanDatumInput = document.getElementById('scanDatumInput');
+            alert('DEBUG: scanDatumInput found: ' + (scanDatumInput ? 'YES' : 'NO'));
+            
             if (scanDatumInput) {
                 scanDatumInput.addEventListener('change', (e) => {
                     if (e.target.value) {
@@ -1397,6 +1404,8 @@ const App = {
             }
 
             const form = document.getElementById('newOrderForm');
+            alert('DEBUG: newOrderForm found: ' + (form ? 'YES' : 'NO'));
+            
             if (form) {
                 // Store reference to App context
                 const app = this;
