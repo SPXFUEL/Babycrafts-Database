@@ -150,11 +150,15 @@ const OrdersModule = {
                 toestemming_delen: formData.toestemming_delen === 'on' || formData.toestemming_delen === true,
                 workflow: workflow,
                 deadline: formData.deadline || null,
-                verantwoordelijke_user: userId,
-                created_by: userId,
                 status: 'active',
                 public_token: Utils.generatePublicToken()
             };
+            
+            // Only set user fields if it's a real Supabase user (UUID), not a local PIN user
+            if (userId && !userId.startsWith('local_')) {
+                orderData.verantwoordelijke_user = userId;
+                orderData.created_by = userId;
+            }
             
             console.log('Order data prepared:', orderData);
             

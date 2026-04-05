@@ -176,14 +176,29 @@ const Repository = {
             try {
                 console.log('Repository.orders.create called with:', { orderData, userId });
                 
+                // Note: created_by is not stored in DB for local PIN users (not UUID)
+                // We store it locally and use local_metadata for tracking
+                const insertData = {
+                    ...orderData,
+                    created_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                };
+                
+                // Remove created_by if it's a local user (not a UUID)
+                if (userId && userId.startsWith('local_')) {
+                    // Store in local_metadata instead
+                    insertData.local_metadata = {
+                        created_by: userId,
+                        created_by_name: App?.currentUser?.user_metadata?.name || 'Onbekend'
+                    };
+                } else if (userId) {
+                    // Only store if it's a real UUID from Supabase auth
+                    insertData.created_by = userId;
+                }
+                
                 const { data, error } = await Repository.supabase
                     .from('orders')
-                    .insert([{
-                        ...orderData,
-                        created_by: userId,
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    }])
+                    .insert([insertData])
                     .select()
                     .single();
                     
@@ -198,7 +213,8 @@ const Repository = {
                 if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
                     Audit.log('create', 'order', orderData.order_id, { 
                         klant: orderData.klant_naam,
-                        collectie: orderData.collectie 
+                        collectie: orderData.collectie,
+                        by: userId
                     });
                 }
                 
@@ -216,12 +232,28 @@ const Repository = {
          */
         async update(orderId, updates, userId) {
             try {
+                const updateData = {
+                    ...updates,
+                    updated_at: new Date().toISOString()
+                };
+                
+                // Handle local user for updated_by
+                if (userId && userId.startsWith('local_')) {
+                    updateData.local_metadata = {
+                        ...updateData.local_metadata,
+                        updated_by: userId,
+                        updated_by_name: App?.currentUser?.user_metadata?.name || 'Onbekend',
+                        updated_at: new Date().toISOString()
+                    };
+                    // Remove updated_by if it would violate FK constraint
+                    delete updateData.updated_by;
+                } else if (userId) {
+                    updateData.updated_by = userId;
+                }
+                
                 const { data, error } = await Repository.supabase
                     .from('orders')
-                    .update({
-                        ...updates,
-                        updated_at: new Date().toISOString()
-                    })
+                    .update(updateData)
                     .eq('order_id', orderId)
                     .select()
                     .single();
@@ -252,6 +284,17 @@ const Repository = {
                     huidige_fase: newFase,
                     updated_at: new Date().toISOString()
                 };
+                
+                // Handle local user
+                if (userId && userId.startsWith('local_')) {
+                    updates.local_metadata = {
+                        updated_by: userId,
+                        updated_by_name: App?.currentUser?.user_metadata?.name || 'Onbekend',
+                        updated_at: new Date().toISOString()
+                    };
+                } else if (userId) {
+                    updates.updated_by = userId;
+                }
                 
                 // Add special date fields based on fase
                 if (newFase === 10) {
@@ -306,12 +349,25 @@ const Repository = {
          */
         async delete(orderId, userId) {
             try {
+                const updates = {
+                    status: 'deleted',
+                    deleted_at: new Date().toISOString()
+                };
+                
+                // Handle local user
+                if (userId && userId.startsWith('local_')) {
+                    updates.local_metadata = {
+                        deleted_by: userId,
+                        deleted_by_name: App?.currentUser?.user_metadata?.name || 'Onbekend',
+                        deleted_at: new Date().toISOString()
+                    };
+                } else if (userId) {
+                    updates.deleted_by = userId;
+                }
+                
                 const { error } = await Repository.supabase
                     .from('orders')
-                    .update({ 
-                        status: 'deleted',
-                        deleted_at: new Date().toISOString()
-                    })
+                    .update(updates)
                     .eq('order_id', orderId);
                     
                 if (error) throw error;
