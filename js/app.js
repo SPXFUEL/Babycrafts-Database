@@ -8,12 +8,19 @@ const App = {
     currentPage: 'dashboard',
     supabase: null,
     isOnline: true,
-    pinKeypadSetup: false,
     keyboardListenerAdded: false,
     currentPin: '',
 
+    // PIN codes configuratie
+    PIN_CODES: {
+        '2911': { name: 'Eigenaar', role: 'admin', email: 'admin@babycrafts.local' },
+        '0805': { name: 'Medewerker', role: 'staff', email: 'staff@babycrafts.local' }
+    },
+
     // Initialize application
     async initialize() {
+        console.log('App initializing...');
+        
         // Check online status
         this.updateOnlineStatus();
         window.addEventListener('online', () => this.updateOnlineStatus(true));
@@ -54,6 +61,11 @@ const App = {
                 UI.showToast('Fout bij opslaan', 'error');
             }
         });
+
+        // Initialize push notifications
+        this.initPushNotifications();
+        
+        console.log('App initialized');
     },
 
     // Initialize Supabase
@@ -81,14 +93,6 @@ const App = {
             UI.showOfflineIndicator();
         }
     },
-
-    // PIN codes configuratie
-    PIN_CODES: {
-        '2911': { name: 'Eigenaar', role: 'admin', email: 'admin@babycrafts.local' },
-        '0805': { name: 'Medewerker', role: 'staff', email: 'staff@babycrafts.local' }
-    },
-    
-    currentPin: '',
 
     // Check authentication
     async checkAuth() {
@@ -118,51 +122,61 @@ const App = {
         this.updatePinDisplay();
         this.hidePinError();
         
-        // Setup PIN keypad - ALWAYS call this to ensure keypad works
-        console.log('Setting up PIN keypad from showLoginScreen');
-        this.setupPinKeypad();
+        // Setup PIN keypad - CRITICAL: Directly bind to buttons
+        console.log('Setting up PIN keypad...');
+        this.setupPinKeypadDirect();
     },
     
-    // Setup PIN keypad
-    setupPinKeypad() {
-        console.log('setupPinKeypad called');
+    // Setup PIN keypad - DIRECT BINDING VERSION (fixes the issue)
+    setupPinKeypadDirect() {
+        console.log('Setting up direct PIN keypad bindings...');
         
-        // Use event delegation on the keypad container instead of individual buttons
-        const keypad = document.querySelector('#pinLogin .grid');
-        console.log('Keypad element:', keypad);
-        
-        if (!keypad) {
-            console.error('Keypad element niet gevonden!');
-            return;
-        }
-        
-        // Remove old listeners by cloning
-        const newKeypad = keypad.cloneNode(true);
-        keypad.parentNode.replaceChild(newKeypad, keypad);
-        
-        // Single click handler for the entire keypad
-        newKeypad.addEventListener('click', (e) => {
-            console.log('Keypad click detected:', e.target);
+        // Direct binding to each key button
+        document.querySelectorAll('.pin-key').forEach(key => {
+            // Remove any existing listeners by cloning
+            const newKey = key.cloneNode(true);
+            key.parentNode.replaceChild(newKey, key);
             
-            const key = e.target.closest('.pin-key');
-            if (key) {
+            // Add click handler
+            newKey.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                const digit = key.dataset.key;
+                const digit = newKey.dataset.key;
                 console.log('PIN key clicked:', digit);
                 if (digit) {
                     this.handlePinDigit(digit);
                 }
-            }
+            });
             
-            const backspace = e.target.closest('#pinBackspace');
-            if (backspace) {
+            // Add touch handler for mobile
+            newKey.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                const digit = newKey.dataset.key;
+                console.log('PIN key touched:', digit);
+                if (digit) {
+                    this.handlePinDigit(digit);
+                }
+            }, { passive: false });
+        });
+        
+        // Bind backspace button
+        const backspaceBtn = document.getElementById('pinBackspace');
+        if (backspaceBtn) {
+            const newBackspace = backspaceBtn.cloneNode(true);
+            backspaceBtn.parentNode.replaceChild(newBackspace, backspaceBtn);
+            
+            newBackspace.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
                 console.log('Backspace clicked');
                 this.handlePinBackspace();
-            }
-        });
+            });
+            
+            newBackspace.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                this.handlePinBackspace();
+            }, { passive: false });
+        }
         
         // Keyboard support (only once)
         if (!this.keyboardListenerAdded) {
@@ -185,31 +199,28 @@ const App = {
             lucide.createIcons();
         }
         
-        console.log('setupPinKeypad complete');
+        console.log('PIN keypad setup complete');
     },
     
     // Handle PIN digit
     handlePinDigit(digit) {
-        console.log('handlePinDigit called with:', digit);
-        console.log('currentPin before:', this.currentPin);
+        console.log('handlePinDigit:', digit, 'current:', this.currentPin);
         
         if (this.currentPin.length < 4) {
             this.currentPin += digit;
-            console.log('currentPin after:', this.currentPin);
             this.updatePinDisplay();
             
             // Check if complete
             if (this.currentPin.length === 4) {
-                console.log('PIN complete, verifying...');
+                console.log('PIN complete, verifying:', this.currentPin);
                 setTimeout(() => this.verifyPin(), 200);
             }
-        } else {
-            console.log('PIN already 4 digits');
         }
     },
     
     // Handle PIN backspace
     handlePinBackspace() {
+        console.log('Backspace, current:', this.currentPin);
         this.currentPin = this.currentPin.slice(0, -1);
         this.updatePinDisplay();
         this.hidePinError();
@@ -218,7 +229,7 @@ const App = {
     // Update PIN display
     updatePinDisplay() {
         const dots = document.querySelectorAll('.pin-dot');
-        console.log('updatePinDisplay - dots found:', dots.length);
+        console.log('Updating display, PIN length:', this.currentPin.length, 'dots:', dots.length);
         dots.forEach((dot, index) => {
             if (index < this.currentPin.length) {
                 dot.textContent = '•';
@@ -320,6 +331,9 @@ const App = {
             }
             await Promise.all(promises);
             this.renderCurrentPage();
+            
+            // Check for daily highlights after loading data
+            this.checkDailyHighlights();
         } catch (error) {
             console.error('Load data error:', error);
         }
@@ -327,9 +341,6 @@ const App = {
 
     // Setup event listeners
     setupEventListeners() {
-        // Logout - look for element with onclick="App.logout()"
-        // Navigation is handled via onclick in HTML
-        
         // Menu button
         document.getElementById('menuBtn')?.addEventListener('click', () => {
             document.getElementById('sideMenu').classList.add('open');
@@ -340,12 +351,6 @@ const App = {
         document.getElementById('menuOverlay')?.addEventListener('click', () => {
             document.getElementById('sideMenu').classList.remove('open');
             document.getElementById('menuOverlay').classList.remove('visible');
-        });
-
-        // New order form
-        document.getElementById('newOrderForm')?.addEventListener('submit', (e) => {
-            e.preventDefault();
-            this.handleNewOrder(e.target);
         });
 
         // Search with debounce
@@ -366,7 +371,7 @@ const App = {
         UI.showToast('Uitgelogd', 'info');
     },
 
-    // Handle new order form submission (from index.html bottom sheet)
+    // Handle new order form submission
     async handleNewOrder(form) {
         console.log('=== handleNewOrder START ===');
         console.log('currentUser voor submit:', this.currentUser);
@@ -419,8 +424,7 @@ const App = {
             const errorMsg = window.lastRepositoryError?.message || error?.message || 'Fout bij aanmaken order';
             UI.showToast(errorMsg, 'error', 5000);
             
-            // BELANGRIJK: Niet naar login scherm gaan bij error!
-            // Alleen als de sessie echt verlopen is
+            // Alleen naar login scherm gaan bij auth error
             if (error?.message?.includes('auth') || error?.message?.includes('unauthorized')) {
                 console.log('Auth error detected, showing login screen');
                 this.showLoginScreen();
@@ -432,40 +436,6 @@ const App = {
                 submitBtn.textContent = originalText;
             }
             console.log('=== handleNewOrder END ===');
-        }
-    },
-        
-        // Show loading state
-        const submitBtn = form.querySelector('button[type="submit"]');
-        const originalText = submitBtn?.textContent || 'Order Aanmaken';
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Bezig...';
-        }
-        
-        try {
-            const order = await OrdersModule.create(formData, this.currentUser?.id);
-            console.log('handleNewOrder - Created order:', order);
-            
-            if (order) {
-                UI.showToast('Order aangemaakt', 'success');
-                this.closeNewOrder();
-                await OrdersModule.load();
-                this.renderCurrentPage();
-            } else {
-                UI.showToast('Order kon niet worden aangemaakt', 'error');
-            }
-        } catch (error) {
-            console.error('handleNewOrder - Error:', error);
-            const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij aanmaken order';
-            console.error('handleNewOrder - Error details:', window.lastRepositoryError);
-            UI.showToast(errorMsg, 'error', 5000);
-        } finally {
-            // Restore button state
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalText;
-            }
         }
     },
 
@@ -555,7 +525,7 @@ const App = {
         container.innerHTML = `
             <div class="page-header">
                 <h1 class="page-title">${I18n.t('nav.dashboard')}</h1>
-                <p class="page-subtitle">Welkom terug, ${this.currentUser?.email?.split('@')[0] || 'Gebruiker'}</p>
+                <p class="page-subtitle">Welkom terug, ${this.currentUser?.user_metadata?.name || 'Gebruiker'}</p>
             </div>
 
             <!-- Stats Grid -->
@@ -591,27 +561,6 @@ const App = {
                 </div>
                 
                 <div class="stat-card stat-card-orange" onclick="App.showBronsgieterijOrders()" style="cursor: pointer;">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="stat-label">${I18n.t('orders.atBronsgieterij')}</span>
-                        <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                            <i data-lucide="factory" class="w-5 h-5 text-orange-600"></i>
-                        </div>
-                    </div>
-                    <div class="stat-value">${stats.atBronsgieterij}</div>
-                </div>
-            </div>
-                
-                <div class="stat-card stat-card-red">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="stat-label">${I18n.t('orders.delayed')}</span>
-                        <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
-                            <i data-lucide="alert-triangle" class="w-5 h-5 text-red-600"></i>
-                        </div>
-                    </div>
-                    <div class="stat-value">${stats.delayed}</div>
-                </div>
-                
-                <div class="stat-card stat-card-orange">
                     <div class="flex items-center justify-between mb-2">
                         <span class="stat-label">${I18n.t('orders.atBronsgieterij')}</span>
                         <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
@@ -1193,6 +1142,26 @@ const App = {
                 <p class="page-subtitle">App instellingen</p>
             </div>
 
+            <!-- Push Notifications -->
+            <div class="content-card mb-4">
+                <div class="flex items-center justify-between py-3 border-b">
+                    <div>
+                        <p class="font-medium">Dagelijkse Notificaties</p>
+                        <p class="text-sm text-gray-500">Ontvang highlights van taken en deadlines</p>
+                    </div>
+                    <button onclick="App.requestNotificationPermission()" id="notifBtn" 
+                            class="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium">
+                        Inschakelen
+                    </button>
+                </div>
+                <div class="mt-3 p-3 bg-gray-50 rounded-xl">
+                    <p class="text-xs text-gray-600">
+                        <i data-lucide="bell" class="w-4 h-4 inline mr-1"></i>
+                        Status: <span id="notifStatus">${this.getNotificationStatus()}</span>
+                    </p>
+                </div>
+            </div>
+
             <div class="content-card space-y-4">
                 <div class="flex items-center justify-between py-3 border-b">
                     <div>
@@ -1239,6 +1208,10 @@ const App = {
         document.getElementById('darkModeToggle')?.addEventListener('change', (e) => {
             document.documentElement.classList.toggle('dark', e.target.checked);
         });
+
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons({ nodes: [container] });
+        }
     },
 
     // Show order detail
@@ -1505,24 +1478,6 @@ const App = {
                     }
                 }
             });
-                    }
-                } catch (error) {
-                    console.error('=== FOUT BIJ AANMAKEN ORDER ===');
-                    console.error('Error object:', error);
-                    console.error('Error message:', error?.message);
-                    console.error('Error stack:', error?.stack);
-                    console.error('window.lastRepositoryError:', window.lastRepositoryError);
-                    
-                    const errorMsg = window.lastRepositoryError?.message || error?.message || 'Onbekende fout bij aanmaken order';
-                    UI.showToast('❌ ' + errorMsg, 'error', 5000);
-                } finally {
-                    // Restore button state
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalText;
-                    }
-                }
-            });
         }, 100);
     },
 
@@ -1772,111 +1727,12 @@ const App = {
         });
     },
 
-    // Show AI Assistant
-    showAIAssistant() {
-        const messages = JSON.parse(localStorage.getItem('ai_chat_history') || '[]');
-        
-        UI.showBottomSheet({
-            title: '🤖 AI Assistent',
-            content: `
-                <div class="flex flex-col h-[60vh]">
-                    <!-- Chat Messages -->
-                    <div id="aiChatMessages" class="flex-1 overflow-y-auto space-y-3 mb-4 p-2">
-                        ${messages.length === 0 ? `
-                            <div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
-                                <p class="font-medium mb-2">Hallo! Ik ben je Babycrafts AI assistent.</p>
-                                <p>Je kunt me vragen stellen zoals:</p>
-                                <ul class="mt-2 space-y-1 text-gray-500">
-                                    <li>• "Welke beeldjes moeten vandaag af?"</li>
-                                    <li>• "Welke orders zijn vertraagd?"</li>
-                                    <li>• "Wat is de status van [klantnaam]?"</li>
-                                    <li>• "Wat moet ik vandaag doen?"</li>
-                                </ul>
-                            </div>
-                        ` : messages.map(m => `
-                            <div class="${m.role === 'user' ? 'ml-8' : 'mr-8'}">
-                                <div class="${m.role === 'user' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-800'} rounded-2xl px-4 py-3 text-sm whitespace-pre-line">
-                                    ${Utils.escapeHtml(m.content)}
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                    
-                    <!-- Input -->
-                    <div class="flex gap-2">
-                        <input type="text" id="aiQuestion" placeholder="Stel een vraag..." 
-                               class="flex-1 px-4 py-3 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                               onkeypress="if(event.key==='Enter')App.askAI()">
-                        <button onclick="App.askAI()" class="px-4 py-3 bg-amber-500 text-white rounded-xl hover:bg-amber-600 transition-colors">
-                            <i data-lucide="send" class="w-5 h-5"></i>
-                        </button>
-                    </div>
-                </div>
-            `
-        });
-        
-        // Scroll to bottom
-        setTimeout(() => {
-            const container = document.getElementById('aiChatMessages');
-            if (container) container.scrollTop = container.scrollHeight;
-        }, 100);
-    },
-
-    // Ask AI
-    askAI() {
-        const input = document.getElementById('aiQuestion');
-        const question = input?.value.trim();
-        if (!question) return;
-        
-        // Update AI context
-        AIAgent.updateContext(OrdersModule.orders, TodosModule.todos);
-        
-        // Get response
-        const response = AIAgent.ask(question);
-        
-        // Save to history
-        const messages = JSON.parse(localStorage.getItem('ai_chat_history') || '[]');
-        messages.push({ role: 'user', content: question, time: Date.now() });
-        messages.push({ role: 'assistant', content: response, time: Date.now() });
-        if (messages.length > 20) messages.splice(0, messages.length - 20);
-        localStorage.setItem('ai_chat_history', JSON.stringify(messages));
-        
-        // Clear input
-        input.value = '';
-        
-        // Append new messages to chat instead of re-rendering
-        const container = document.getElementById('aiChatMessages');
-        if (container) {
-            // Remove empty state if present
-            const emptyState = container.querySelector('.bg-gray-50');
-            if (emptyState) emptyState.remove();
-            
-            // Add user message
-            const userDiv = document.createElement('div');
-            userDiv.className = 'ml-8';
-            userDiv.innerHTML = `<div class="bg-amber-500 text-white rounded-2xl px-4 py-3 text-sm whitespace-pre-line">${Utils.escapeHtml(question)}</div>`;
-            container.appendChild(userDiv);
-            
-            // Add assistant message
-            const assistantDiv = document.createElement('div');
-            assistantDiv.className = 'mr-8';
-            assistantDiv.innerHTML = `<div class="bg-gray-100 text-gray-800 rounded-2xl px-4 py-3 text-sm whitespace-pre-line">${Utils.escapeHtml(response)}</div>`;
-            container.appendChild(assistantDiv);
-            
-            // Scroll to bottom
-            container.scrollTop = container.scrollHeight;
-        } else {
-            // Fallback: re-render if container not found
-            this.showAIAssistant();
-        }
-    },
-
     // Edit order
     editOrder(orderId) {
         const order = OrdersModule.getById(orderId);
         if (!order) return;
 
-        const collecties = ['Figura', 'Arte-Lumina', 'Natura-Alba', 'Ouder \u0026 Kind', 'Babybeeld', 'Atelier-Bronze', 'Gegoten Brons', 'Aangepast'];
+        const collecties = ['Figura', 'Arte-Lumina', 'Natura-Alba', 'Ouder & Kind', 'Babybeeld', 'Atelier-Bronze', 'Gegoten Brons', 'Aangepast'];
         
         UI.showBottomSheet({
             title: `Bewerk ${orderId}`,
@@ -2022,6 +1878,189 @@ const App = {
                 </div>
             `
         });
+    },
+
+    // ==================== PUSH NOTIFICATIONS ====================
+    
+    // Initialize push notifications
+    initPushNotifications() {
+        // Check if service workers are supported
+        if ('serviceWorker' in navigator && 'PushManager' in window) {
+            this.registerServiceWorker();
+        }
+        
+        // Check for daily highlights on load
+        this.checkDailyHighlights();
+        
+        // Schedule next check
+        this.scheduleDailyCheck();
+    },
+    
+    // Register service worker for notifications
+    async registerServiceWorker() {
+        try {
+            const registration = await navigator.serviceWorker.register('/sw.js');
+            console.log('Service Worker registered:', registration);
+        } catch (error) {
+            console.log('Service Worker registration failed:', error);
+        }
+    },
+    
+    // Request notification permission
+    async requestNotificationPermission() {
+        if (!('Notification' in window)) {
+            UI.showToast('Notificaties worden niet ondersteund op dit apparaat', 'error');
+            return;
+        }
+        
+        const permission = await Notification.requestPermission();
+        if (permission === 'granted') {
+            localStorage.setItem('babycrafts_notifications', 'enabled');
+            UI.showToast('Notificaties ingeschakeld!', 'success');
+            this.renderCurrentPage();
+            
+            // Send a test notification
+            this.sendTestNotification();
+        } else {
+            localStorage.setItem('babycrafts_notifications', 'denied');
+            UI.showToast('Notificaties geweigerd', 'info');
+        }
+    },
+    
+    // Get notification status text
+    getNotificationStatus() {
+        if (!('Notification' in window)) {
+            return 'Niet ondersteund';
+        }
+        const status = localStorage.getItem('babycrafts_notifications');
+        if (Notification.permission === 'granted' && status === 'enabled') {
+            return 'Ingeschakeld';
+        } else if (Notification.permission === 'denied') {
+            return 'Geweigerd';
+        }
+        return 'Uitgeschakeld';
+    },
+    
+    // Send test notification
+    sendTestNotification() {
+        if (Notification.permission === 'granted') {
+            new Notification('Babycrafts', {
+                body: '📱 Dagelijkse notificaties zijn nu actief!',
+                icon: 'https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png',
+                badge: 'https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png'
+            });
+        }
+    },
+    
+    // Check for daily highlights and send notification
+    checkDailyHighlights() {
+        const lastCheck = localStorage.getItem('babycrafts_last_notification');
+        const today = new Date().toDateString();
+        
+        // Only send once per day
+        if (lastCheck === today) {
+            return;
+        }
+        
+        const notifications = localStorage.getItem('babycrafts_notifications');
+        if (notifications !== 'enabled' || Notification.permission !== 'granted') {
+            return;
+        }
+        
+        // Wait for data to be loaded
+        setTimeout(() => {
+            this.sendDailyHighlightNotification();
+        }, 2000);
+    },
+    
+    // Send daily highlight notification
+    sendDailyHighlightNotification() {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        // Get urgent items
+        const urgentOrders = OrdersModule.orders?.filter(o => {
+            if (!o.deadline || o.huidige_fase >= 12) return false;
+            const deadline = new Date(o.deadline);
+            const diffDays = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
+            return diffDays <= 2 && diffDays >= 0;
+        }) || [];
+        
+        const overdueOrders = OrdersModule.orders?.filter(o => {
+            if (!o.deadline || o.huidige_fase >= 12) return false;
+            return new Date(o.deadline) < today;
+        }) || [];
+        
+        const openTodos = TodosModule.todos?.filter(t => !t.completed) || [];
+        
+        // Build notification message
+        let body = '';
+        const items = [];
+        
+        if (overdueOrders.length > 0) {
+            items.push(`⚠️ ${overdueOrders.length} vertraagde order(s)`);
+        }
+        if (urgentOrders.length > 0) {
+            items.push(`⏰ ${urgentOrders.length} order(s) met deadline vandaag/morgen`);
+        }
+        if (openTodos.length > 0) {
+            items.push(`📝 ${openTodos.length} openstaande ta(a)k(en)`);
+        }
+        
+        if (items.length === 0) {
+            body = '✅ Geen urgente items voor vandaag!';
+        } else {
+            body = items.join('\n');
+        }
+        
+        // Send notification
+        new Notification('📊 Babycrafts - Dagelijkse Highlights', {
+            body: body,
+            icon: 'https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png',
+            badge: 'https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png',
+            tag: 'daily-highlights',
+            requireInteraction: true
+        });
+        
+        // Mark as sent
+        localStorage.setItem('babycrafts_last_notification', new Date().toDateString());
+    },
+    
+    // Schedule daily check
+    scheduleDailyCheck() {
+        // Check every hour if it's time for a new notification
+        setInterval(() => {
+            const now = new Date();
+            // Send at 9 AM
+            if (now.getHours() === 9) {
+                this.checkDailyHighlights();
+            }
+        }, 60 * 60 * 1000); // Every hour
+    },
+    
+    // Toggle menu
+    toggleMenu() {
+        const sideMenu = document.getElementById('sideMenu');
+        const menuOverlay = document.getElementById('menuOverlay');
+        sideMenu.classList.toggle('open');
+        menuOverlay.classList.toggle('visible');
+    },
+    
+    // Close detail sheet
+    closeDetail() {
+        const sheet = document.getElementById('detailSheet');
+        if (sheet) {
+            sheet.classList.remove('active');
+        }
+    },
+    
+    // Close confirm modal
+    closeConfirmModal() {
+        const modal = document.getElementById('confirmModal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+        }
     }
 };
 
