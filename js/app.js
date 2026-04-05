@@ -38,6 +38,58 @@ const CONFIG = {
 };
 
 // ============================================
+// GLOBAL PIN FUNCTIONS (for inline onclick)
+// ============================================
+let _pinInput = '';
+
+function _updatePinDots() {
+    document.querySelectorAll('.pin-dot').forEach((dot, i) => {
+        dot.classList.toggle('filled', i < _pinInput.length);
+    });
+    const errorEl = document.getElementById('pinError');
+    if (errorEl) errorEl.classList.add('hidden');
+}
+
+function pinDigit(digit) {
+    if (_pinInput.length < 4) {
+        _pinInput += digit;
+        _updatePinDots();
+
+        if (_pinInput.length === 4) {
+            setTimeout(() => _verifyPin(), 200);
+        }
+    }
+}
+
+function pinBackspace() {
+    _pinInput = _pinInput.slice(0, -1);
+    _updatePinDots();
+}
+
+async function _verifyPin() {
+    const userData = CONFIG.PIN_CODES[_pinInput];
+
+    if (userData) {
+        Store.saveUser({
+            id: `local_${userData.role}_${_pinInput}`,
+            name: userData.name,
+            role: userData.role
+        });
+
+        _pinInput = '';
+        _updatePinDots();
+        App.showMainApp();
+        await App.loadData();
+        UI.toast(`Welkom ${userData.name}`, 'success');
+    } else {
+        const errorEl = document.getElementById('pinError');
+        if (errorEl) errorEl.classList.remove('hidden');
+        _pinInput = '';
+        setTimeout(() => _updatePinDots(), 500);
+    }
+}
+
+// ============================================
 // STATE MANAGEMENT
 // ============================================
 const Store = {
@@ -46,7 +98,7 @@ const Store = {
     todos: [],
     currentPage: 'dashboard',
     supabase: null,
-    
+
     init() {
         const saved = localStorage.getItem('babycrafts_session');
         if (saved) {
@@ -57,17 +109,17 @@ const Store = {
             }
         }
     },
-    
+
     saveUser(user) {
         this.user = user;
         localStorage.setItem('babycrafts_session', JSON.stringify(user));
     },
-    
+
     clearUser() {
         this.user = null;
         localStorage.removeItem('babycrafts_session');
     },
-    
+
     async initSupabase() {
         const { createClient } = supabase;
         this.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
@@ -87,19 +139,19 @@ const Utils = {
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#039;');
     },
-    
+
     generateOrderId() {
         const year = new Date().getFullYear();
         const count = Store.orders.filter(o => o.order_id?.startsWith(`BC-${year}`)).length + 1;
         return `BC-${year}-${String(count).padStart(4, '0')}`;
     },
-    
+
     generateToken() {
-        return Array.from({length: 32}, () => 
+        return Array.from({length: 32}, () =>
             'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 62)]
         ).join('');
     },
-    
+
     formatDate(date) {
         if (!date) return '-';
         return new Date(date).toLocaleDateString('nl-NL', {
@@ -108,7 +160,7 @@ const Utils = {
             year: 'numeric'
         });
     },
-    
+
     getDeadlineStatus(order) {
         if (!order.deadline || order.huidige_fase >= 12) return null;
         const days = Math.ceil((new Date(order.deadline) - new Date()) / (1000 * 60 * 60 * 24));
@@ -117,7 +169,7 @@ const Utils = {
         if (days <= 2) return { text: `${days} dagen resterend`, class: 'text-orange-600 bg-orange-50' };
         return { text: `${days} dagen resterend`, class: 'text-green-600 bg-green-50' };
     },
-    
+
     getWorkflow(collectie) {
         if (collectie?.includes('Atelier-Bronze')) return 'atelier_bronze';
         if (collectie?.includes('Gegoten Brons')) return 'gegoten_brons';
@@ -138,7 +190,7 @@ const DB = {
         if (error) throw error;
         return data || [];
     },
-    
+
     async createOrder(orderData) {
         const { data, error } = await Store.supabase
             .from('orders')
@@ -148,7 +200,7 @@ const DB = {
         if (error) throw error;
         return data;
     },
-    
+
     async updateOrder(orderId, updates) {
         const { data, error } = await Store.supabase
             .from('orders')
@@ -159,7 +211,7 @@ const DB = {
         if (error) throw error;
         return data;
     },
-    
+
     async updateFase(orderId, newFase) {
         const updates = { huidige_fase: newFase };
         if (newFase === 10) {
@@ -181,71 +233,71 @@ const UI = {
     el(id) {
         return document.getElementById(id);
     },
-    
+
     show(id) {
         const el = this.el(id);
         if (el) el.classList.remove('hidden');
     },
-    
+
     hide(id) {
         const el = this.el(id);
         if (el) el.classList.add('hidden');
     },
-    
+
     setText(id, text) {
         const el = this.el(id);
         if (el) el.textContent = text;
     },
-    
+
     toast(message, type = 'info') {
         const container = this.el('toastContainer');
         if (!container) return;
-        
+
         const toast = document.createElement('div');
         const colors = {
             success: 'border-green-500 bg-green-50',
             error: 'border-red-500 bg-red-50',
             info: 'border-blue-500 bg-blue-50'
         };
-        
+
         toast.className = `p-4 rounded-xl shadow-lg border-l-4 ${colors[type]} transform transition-all duration-300 translate-y-10 opacity-0`;
         toast.innerHTML = `
             <div class="flex items-center gap-3">
                 <span class="font-medium">${Utils.escapeHtml(message)}</span>
             </div>
         `;
-        
+
         container.appendChild(toast);
         requestAnimationFrame(() => {
             toast.classList.remove('translate-y-10', 'opacity-0');
         });
-        
+
         setTimeout(() => {
             toast.classList.add('translate-y-10', 'opacity-0');
             setTimeout(() => toast.remove(), 300);
         }, 3000);
     },
-    
+
     showBottomSheet(content) {
         const sheet = this.el('bottomSheet');
         const contentEl = this.el('bottomSheetContent');
         if (!sheet || !contentEl) return;
-        
+
         contentEl.innerHTML = content;
         sheet.classList.add('active');
         lucide.createIcons();
     },
-    
+
     hideBottomSheet() {
         const sheet = this.el('bottomSheet');
         if (sheet) sheet.classList.remove('active');
     },
-    
+
     openMenu() {
         this.el('sideMenu')?.classList.add('open');
         this.el('menuOverlay')?.classList.add('visible');
     },
-    
+
     closeMenu() {
         this.el('sideMenu')?.classList.remove('open');
         this.el('menuOverlay')?.classList.remove('visible');
@@ -262,12 +314,12 @@ const Pages = {
             if (!o.deadline) return false;
             return new Date(o.deadline) < new Date();
         });
-        
+
         let html = `
             <div class="px-4 py-6">
                 <h1 class="text-2xl font-bold text-gray-900 mb-2">Dashboard</h1>
                 <p class="text-gray-500 mb-6">Welkom terug, ${Utils.escapeHtml(Store.user?.name || 'Gebruiker')}</p>
-                
+
                 <!-- Stats -->
                 <div class="grid grid-cols-2 gap-3 mb-6">
                     <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-2xl p-4 text-white">
@@ -279,7 +331,7 @@ const Pages = {
                         <div class="text-red-100 text-sm">Vertraagd</div>
                     </div>
                 </div>
-                
+
                 <!-- Recent Orders -->
                 <h2 class="text-lg font-semibold mb-3">Recente Orders</h2>
                 <div class="space-y-3">
@@ -288,24 +340,24 @@ const Pages = {
                 </div>
             </div>
         `;
-        
+
         UI.el('mainContent').innerHTML = html;
         lucide.createIcons();
     },
-    
+
     orders() {
         let html = `
             <div class="px-4 py-6">
                 <h1 class="text-2xl font-bold text-gray-900 mb-4">Alle Orders</h1>
-                
+
                 <!-- Search -->
                 <div class="relative mb-4">
                     <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400"></i>
-                    <input type="text" id="orderSearch" placeholder="Zoek orders..." 
+                    <input type="text" id="orderSearch" placeholder="Zoek orders..."
                            class="w-full pl-10 pr-4 py-3 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500"
                            oninput="App.searchOrders(this.value)">
                 </div>
-                
+
                 <!-- List -->
                 <div id="ordersList" class="space-y-3">
                     ${Store.orders.map(order => this.orderCard(order)).join('')}
@@ -313,15 +365,15 @@ const Pages = {
                 </div>
             </div>
         `;
-        
+
         UI.el('mainContent').innerHTML = html;
         lucide.createIcons();
     },
-    
+
     orderCard(order) {
         const fase = CONFIG.FASES[order.huidige_fase] || CONFIG.FASES[0];
         const deadline = Utils.getDeadlineStatus(order);
-        
+
         return `
             <div class="bg-white rounded-2xl p-4 shadow-sm border border-gray-100 active:scale-[0.98] transition-transform cursor-pointer"
                  onclick="App.showOrderDetail('${order.order_id}')">
@@ -342,10 +394,10 @@ const Pages = {
             </div>
         `;
     },
-    
+
     archief() {
         const completed = Store.orders.filter(o => o.huidige_fase >= 12);
-        
+
         let html = `
             <div class="px-4 py-6">
                 <h1 class="text-2xl font-bold text-gray-900 mb-4">Archief</h1>
@@ -355,14 +407,14 @@ const Pages = {
                 </div>
             </div>
         `;
-        
+
         UI.el('mainContent').innerHTML = html;
         lucide.createIcons();
     },
-    
+
     nazorg() {
         const nazorgOrders = Store.orders.filter(o => o.huidige_fase === 11);
-        
+
         let html = `
             <div class="px-4 py-6">
                 <h1 class="text-2xl font-bold text-gray-900 mb-4">Nazorg</h1>
@@ -372,7 +424,7 @@ const Pages = {
                             <h3 class="font-semibold text-gray-900">${Utils.escapeHtml(order.klant_naam)}</h3>
                             <p class="text-sm text-gray-500 mb-3">${order.order_id}</p>
                             <div class="flex gap-2">
-                                <a href="https://wa.me/${order.klant_telefoon?.replace(/\D/g, '')}" 
+                                <a href="https://wa.me/${order.klant_telefoon?.replace(/\D/g, '')}"
                                    class="flex-1 py-2 bg-green-500 text-white rounded-xl text-center text-sm font-medium">
                                     WhatsApp
                                 </a>
@@ -387,15 +439,15 @@ const Pages = {
                 </div>
             </div>
         `;
-        
+
         UI.el('mainContent').innerHTML = html;
     },
-    
+
     settings() {
         let html = `
             <div class="px-4 py-6">
                 <h1 class="text-2xl font-bold text-gray-900 mb-6">Instellingen</h1>
-                
+
                 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-4">
                     <div class="p-4 border-b border-gray-100">
                         <p class="font-medium text-gray-900">Gebruiker</p>
@@ -410,14 +462,14 @@ const Pages = {
                         <p class="text-sm text-gray-500">${CONFIG.VERSION}</p>
                     </div>
                 </div>
-                
-                <button onclick="App.logout()" 
+
+                <button onclick="App.logout()"
                         class="w-full py-4 bg-red-500 text-white rounded-2xl font-medium active:scale-[0.98] transition-transform">
                     Uitloggen
                 </button>
             </div>
         `;
-        
+
         UI.el('mainContent').innerHTML = html;
     }
 };
@@ -429,40 +481,18 @@ const App = {
     async init() {
         Store.init();
         await Store.initSupabase();
-        
+
         if (Store.user) {
             this.showMainApp();
             await this.loadData();
         } else {
             this.showLogin();
         }
-        
+
         this.setupEventListeners();
     },
-    
+
     setupEventListeners() {
-        // PIN keypad - support both click and touch
-        const handlePinKey = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const digit = e.currentTarget.dataset.key;
-            if (digit) this.handlePinDigit(digit);
-        };
-        
-        document.querySelectorAll('.pin-key').forEach(key => {
-            key.addEventListener('click', handlePinKey);
-            key.addEventListener('touchstart', handlePinKey, {passive: false});
-        });
-        
-        const handleBackspace = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            this.handlePinBackspace();
-        };
-        
-        document.getElementById('pinBackspace')?.addEventListener('click', handleBackspace);
-        document.getElementById('pinBackspace')?.addEventListener('touchstart', handleBackspace, {passive: false});
-        
         // Close bottom sheet on backdrop click
         document.getElementById('bottomSheetBackdrop')?.addEventListener('click', () => {
             UI.hideBottomSheet();
@@ -474,55 +504,11 @@ const App = {
         });
     },
     
-    // PIN Login
-    pinInput: '',
-    
-    handlePinDigit(digit) {
-        if (this.pinInput.length < 4) {
-            this.pinInput += digit;
-            this.updatePinDisplay();
-            
-            if (this.pinInput.length === 4) {
-                setTimeout(() => this.verifyPin(), 200);
-            }
-        }
-    },
-    
-    handlePinBackspace() {
-        this.pinInput = this.pinInput.slice(0, -1);
-        this.updatePinDisplay();
-    },
-    
-    updatePinDisplay() {
-        document.querySelectorAll('.pin-dot').forEach((dot, i) => {
-            dot.classList.toggle('filled', i < this.pinInput.length);
-        });
-        UI.el('pinError')?.classList.add('hidden');
-    },
-    
-    async verifyPin() {
-        const userData = CONFIG.PIN_CODES[this.pinInput];
-        
-        if (userData) {
-            Store.saveUser({
-                id: `local_${userData.role}_${this.pinInput}`,
-                name: userData.name,
-                role: userData.role
-            });
-            
-            this.showMainApp();
-            await this.loadData();
-            UI.toast(`Welkom ${userData.name}`, 'success');
-        } else {
-            UI.el('pinError')?.classList.remove('hidden');
-            this.pinInput = '';
-            setTimeout(() => this.updatePinDisplay(), 500);
-        }
-    },
+    // Note: PIN handling uses global functions (pinDigit, pinBackspace)
     
     showLogin() {
-        this.pinInput = '';
-        this.updatePinDisplay();
+        _pinInput = '';
+        _updatePinDots();
         UI.show('loginScreen');
         UI.hide('mainApp');
         // Initialize icons for login screen (delete button)
@@ -530,13 +516,13 @@ const App = {
             lucide.createIcons();
         }
     },
-    
+
     showMainApp() {
         UI.hide('loginScreen');
         UI.show('mainApp');
         this.navigate('dashboard');
     },
-    
+
     async loadData() {
         try {
             Store.orders = await DB.getOrders();
@@ -546,18 +532,18 @@ const App = {
             UI.toast('Fout bij laden data', 'error');
         }
     },
-    
+
     // Navigation
     navigate(page) {
         Store.currentPage = page;
         UI.closeMenu();
-        
+
         // Update nav
         document.querySelectorAll('.nav-item').forEach(el => {
             el.classList.toggle('text-amber-600', el.dataset.page === page);
             el.classList.toggle('text-gray-400', el.dataset.page !== page);
         });
-        
+
         // Update title
         const titles = {
             dashboard: 'Dashboard',
@@ -567,15 +553,15 @@ const App = {
             settings: 'Instellingen'
         };
         UI.setText('pageTitle', titles[page] || 'Babycrafts');
-        
+
         // Render page
         Pages[page]?.();
     },
-    
+
     // Order CRUD
     showNewOrderForm() {
         const collecties = CONFIG.COLLECTIES;
-        
+
         UI.showBottomSheet(`
             <div class="p-6">
                 <div class="flex items-center justify-between mb-6">
@@ -584,26 +570,26 @@ const App = {
                         <i data-lucide="x" class="w-5 h-5"></i>
                     </button>
                 </div>
-                
+
                 <form id="newOrderForm" class="space-y-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Klantnaam *</label>
                         <input type="text" name="klant_naam" required
                                class="w-full px-4 py-3 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500">
                     </div>
-                    
+
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Email *</label>
                         <input type="email" name="klant_email" required
                                class="w-full px-4 py-3 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500">
                     </div>
-                    
+
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Telefoon</label>
                         <input type="tel" name="klant_telefoon"
                                class="w-full px-4 py-3 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500">
                     </div>
-                    
+
                     <div class="grid grid-cols-2 gap-3">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Collectie *</label>
@@ -618,7 +604,7 @@ const App = {
                                    class="w-full px-4 py-3 bg-gray-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500">
                         </div>
                     </div>
-                    
+
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Scan Datum</label>
                         <input type="date" name="scan_datum" id="scanDate"
@@ -626,9 +612,9 @@ const App = {
                                onchange="App.calculateDeadline(this)">
                         <p class="text-xs text-gray-500 mt-1">Deadline wordt automatisch 6 weken na scan datum</p>
                     </div>
-                    
+
                     <input type="hidden" name="deadline" id="deadlineField">
-                    
+
                     <button type="button" onclick="App.submitNewOrder()"
                             class="w-full py-4 bg-amber-500 text-white rounded-2xl font-medium mt-6 active:scale-[0.98] transition-transform">
                         Order Aanmaken
@@ -636,10 +622,10 @@ const App = {
                 </form>
             </div>
         `);
-        
+
         lucide.createIcons();
     },
-    
+
     calculateDeadline(input) {
         if (!input.value) return;
         const scanDate = new Date(input.value);
@@ -647,20 +633,20 @@ const App = {
         deadline.setDate(deadline.getDate() + 42);
         document.getElementById('deadlineField').value = deadline.toISOString().split('T')[0];
     },
-    
+
     async submitNewOrder() {
         const form = document.getElementById('newOrderForm');
         if (!form) return;
-        
+
         const formData = new FormData(form);
         const data = Object.fromEntries(formData);
-        
+
         // Validation
         if (!data.klant_naam || !data.klant_email) {
             UI.toast('Vul alle verplichte velden in', 'error');
             return;
         }
-        
+
         const orderData = {
             order_id: Utils.generateOrderId(),
             klant_naam: data.klant_naam.trim(),
@@ -675,14 +661,14 @@ const App = {
             workflow: Utils.getWorkflow(data.collectie),
             public_token: Utils.generateToken()
         };
-        
+
         try {
             UI.el('bottomSheetContent').querySelector('button').textContent = 'Bezig...';
             UI.el('bottomSheetContent').querySelector('button').disabled = true;
-            
+
             const order = await DB.createOrder(orderData);
             Store.orders.unshift(order);
-            
+
             UI.hideBottomSheet();
             UI.toast('Order aangemaakt!', 'success');
             Pages[Store.currentPage]?.();
@@ -693,16 +679,16 @@ const App = {
             UI.el('bottomSheetContent').querySelector('button').disabled = false;
         }
     },
-    
+
     showOrderDetail(orderId) {
         const order = Store.orders.find(o => o.order_id === orderId);
         if (!order) return;
-        
+
         const fase = CONFIG.FASES[order.huidige_fase];
         const workflow = CONFIG.WORKFLOWS[order.workflow];
         const currentIdx = workflow.indexOf(order.huidige_fase);
         const canAdvance = currentIdx < workflow.length - 1;
-        
+
         UI.showBottomSheet(`
             <div class="p-6">
                 <div class="flex items-center justify-between mb-6">
@@ -714,7 +700,7 @@ const App = {
                         <i data-lucide="x" class="w-5 h-5"></i>
                     </button>
                 </div>
-                
+
                 <div class="bg-gray-50 rounded-2xl p-4 mb-4">
                     <div class="grid grid-cols-2 gap-4 text-sm">
                         <div>
@@ -735,14 +721,14 @@ const App = {
                         </div>
                     </div>
                 </div>
-                
+
                 ${order.huidige_fase < 12 ? `
-                    <button onclick="App.advanceOrder('${order.order_id}')" 
+                    <button onclick="App.advanceOrder('${order.order_id}')"
                             class="w-full py-4 bg-green-500 text-white rounded-2xl font-medium mb-3 active:scale-[0.98] transition-transform">
                         ${canAdvance ? 'Naar volgende fase →' : 'Order afronden'}
                     </button>
                 ` : ''}
-                
+
                 <div class="grid grid-cols-2 gap-3">
                     <button onclick="App.editOrder('${order.order_id}')"
                             class="py-3 bg-amber-100 text-amber-700 rounded-xl font-medium">
@@ -755,23 +741,23 @@ const App = {
                 </div>
             </div>
         `);
-        
+
         lucide.createIcons();
     },
-    
+
     async advanceOrder(orderId) {
         const order = Store.orders.find(o => o.order_id === orderId);
         if (!order) return;
-        
+
         const workflow = CONFIG.WORKFLOWS[order.workflow];
         const currentIdx = workflow.indexOf(order.huidige_fase);
         const nextFase = workflow[currentIdx + 1];
-        
+
         try {
             const updated = await DB.updateFase(orderId, nextFase);
             const idx = Store.orders.findIndex(o => o.order_id === orderId);
             if (idx !== -1) Store.orders[idx] = updated;
-            
+
             UI.hideBottomSheet();
             UI.toast('Fase bijgewerkt', 'success');
             Pages[Store.currentPage]?.();
@@ -779,24 +765,24 @@ const App = {
             UI.toast('Fout bij bijwerken', 'error');
         }
     },
-    
+
     async completeNazorg(orderId) {
         try {
             const updated = await DB.updateFase(orderId, 12);
             const idx = Store.orders.findIndex(o => o.order_id === orderId);
             if (idx !== -1) Store.orders[idx] = updated;
-            
+
             UI.toast('Nazorg afgerond', 'success');
             Pages.nazorg();
         } catch (error) {
             UI.toast('Fout', 'error');
         }
     },
-    
+
     editOrder(orderId) {
         const order = Store.orders.find(o => o.order_id === orderId);
         if (!order) return;
-        
+
         UI.showBottomSheet(`
             <div class="p-6">
                 <h2 class="text-xl font-bold mb-4">Order Bewerken</h2>
@@ -825,11 +811,11 @@ const App = {
             </div>
         `);
     },
-    
+
     async submitEditOrder() {
         const form = document.getElementById('editOrderForm');
         if (!form) return;
-        
+
         const formData = new FormData(form);
         const orderId = formData.get('order_id');
         const updates = {
@@ -837,12 +823,12 @@ const App = {
             klant_email: formData.get('klant_email')?.trim(),
             klant_telefoon: formData.get('klant_telefoon')?.trim() || null
         };
-        
+
         try {
             const updated = await DB.updateOrder(orderId, updates);
             const idx = Store.orders.findIndex(o => o.order_id === orderId);
             if (idx !== -1) Store.orders[idx] = updated;
-            
+
             UI.hideBottomSheet();
             UI.toast('Order bijgewerkt', 'success');
             Pages[Store.currentPage]?.();
@@ -850,10 +836,10 @@ const App = {
             UI.toast('Fout bij opslaan', 'error');
         }
     },
-    
+
     deleteOrder(orderId) {
         if (!confirm('Order verwijderen?')) return;
-        
+
         DB.updateOrder(orderId, { status: 'deleted' })
             .then(() => {
                 Store.orders = Store.orders.filter(o => o.order_id !== orderId);
@@ -863,15 +849,15 @@ const App = {
             })
             .catch(() => UI.toast('Fout bij verwijderen', 'error'));
     },
-    
+
     searchOrders(query) {
         const term = query.toLowerCase();
-        const filtered = Store.orders.filter(o => 
+        const filtered = Store.orders.filter(o =>
             o.klant_naam?.toLowerCase().includes(term) ||
             o.order_id?.toLowerCase().includes(term) ||
             o.klant_email?.toLowerCase().includes(term)
         );
-        
+
         const container = document.getElementById('ordersList');
         if (container) {
             container.innerHTML = filtered.map(order => Pages.orderCard(order)).join('');
@@ -880,7 +866,7 @@ const App = {
             }
         }
     },
-    
+
     logout() {
         Store.clearUser();
         this.showLogin();

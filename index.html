@@ -159,18 +159,18 @@
             
             <!-- Keypad -->
             <div class="grid grid-cols-3 gap-4">
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="1" onclick="App.handlePinDigit('1')">1</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="2" onclick="App.handlePinDigit('2')">2</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="3" onclick="App.handlePinDigit('3')">3</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="4" onclick="App.handlePinDigit('4')">4</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="5" onclick="App.handlePinDigit('5')">5</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="6" onclick="App.handlePinDigit('6')">6</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="7" onclick="App.handlePinDigit('7')">7</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="8" onclick="App.handlePinDigit('8')">8</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="9" onclick="App.handlePinDigit('9')">9</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('1')">1</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('2')">2</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('3')">3</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('4')">4</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('5')">5</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('6')">6</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('7')">7</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('8')">8</button>
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('9')">9</button>
                 <div class="w-16 h-16"></div>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" data-key="0" onclick="App.handlePinDigit('0')">0</button>
-                <button type="button" id="pinBackspace" onclick="App.handlePinBackspace()" class="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center active:bg-gray-200 transition-colors">
+                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('0')">0</button>
+                <button type="button" onclick="pinBackspace()" class="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center active:bg-gray-200 transition-colors">
                     <i data-lucide="delete" class="w-6 h-6"></i>
                 </button>
             </div>
