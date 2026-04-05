@@ -1374,7 +1374,7 @@ const App = {
                         <input type="checkbox" name="toestemming_delen" class="w-4 h-4 text-amber-500 rounded">
                         <span class="text-sm text-gray-700">Toestemming delen op social media</span>
                     </label>
-                    <button type="submit" class="w-full py-3 bg-amber-500 text-white rounded-xl font-medium">
+                    <button type="button" onclick="App.submitNewOrderForm(this)" class="w-full py-3 bg-amber-500 text-white rounded-xl font-medium">
                         Order Aanmaken
                     </button>
                 </form>
@@ -1481,6 +1481,71 @@ const App = {
                 });
             }
         }, 100);
+    },
+
+    // Submit new order form (called from button onclick)
+    async submitNewOrderForm(btn) {
+        alert('DEBUG: submitNewOrderForm called!');
+
+        // Get user
+        let currentUser = null;
+        const savedSession = localStorage.getItem('babycrafts_session');
+        if (savedSession) {
+            try {
+                currentUser = JSON.parse(savedSession);
+                App.currentUser = currentUser;
+            } catch (err) {
+                alert('DEBUG: Session parse error');
+                return;
+            }
+        }
+
+        if (!currentUser?.id) {
+            alert('DEBUG: No user!');
+            App.showLoginScreen();
+            return;
+        }
+
+        const form = btn.closest('form');
+        if (!form) {
+            alert('DEBUG: No form found!');
+            return;
+        }
+
+        const formData = Object.fromEntries(new FormData(form));
+
+        // Add deadline if scan date set
+        const scanDatumInput = document.getElementById('scanDatumInput');
+        if (scanDatumInput?.dataset.deadline) {
+            formData.deadline = scanDatumInput.dataset.deadline;
+        }
+
+        // Loading state
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = 'Bezig...';
+
+        try {
+            alert('DEBUG: Creating order...');
+            const order = await OrdersModule.create(formData, currentUser.id);
+
+            if (order) {
+                alert('DEBUG: Success! ID: ' + order.order_id);
+                UI.showToast('Order aangemaakt!', 'success');
+                UI.closeBottomSheet();
+                await OrdersModule.load();
+                App.renderCurrentPage();
+            } else {
+                alert('DEBUG: Order is null');
+                UI.showToast('Order kon niet worden aangemaakt', 'error');
+            }
+        } catch (error) {
+            alert('DEBUG ERROR: ' + (error?.message || 'Unknown'));
+            UI.showToast('Fout: ' + (error?.message || 'Onbekend'), 'error');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
     },
 
     // Advance order to next fase
