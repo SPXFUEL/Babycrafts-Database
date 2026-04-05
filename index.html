@@ -5,286 +5,444 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#f59e0b">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>Babycrafts Atelier Pro</title>
     
     <link rel="icon" href="https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png">
-    <link rel="apple-touch-icon" href="https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png">
+    
+    <!-- Custom Styles - iPhone Optimized -->
+    <link rel="stylesheet" href="css/styles.css">
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: {
-                            50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a',
-                            300: '#fcd34d', 400: '#fbbf24', 500: '#f59e0b',
-                            600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f'
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-    <style>
-        * { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-        .safe-top { padding-top: env(safe-area-inset-top); }
-        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
-        
-        /* PIN Dots */
-        .pin-dot {
-            width: 20px;
-            height: 20px;
-            border: 2px solid #e5e7eb;
-            border-radius: 50%;
-            transition: all 0.2s;
-        }
-        .pin-dot.filled {
-            background: #f59e0b;
-            border-color: #f59e0b;
-        }
-        
-        /* PIN Keys */
-        .pin-key, #pinBackspace {
-            cursor: pointer;
-            -webkit-touch-callout: none;
-            -webkit-user-select: none;
-            user-select: none;
-            touch-action: manipulation;
-        }
-        
-        /* Side Menu */
-        .side-menu {
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            width: 280px;
-            background: white;
-            z-index: 50;
-            transform: translateX(-100%);
-            transition: transform 0.3s ease;
-            box-shadow: 4px 0 24px rgba(0,0,0,0.1);
-        }
-        .side-menu.open { transform: translateX(0); }
-        
-        .menu-overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 40;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s;
-        }
-        .menu-overlay.visible { opacity: 1; pointer-events: auto; }
-        
-        /* Bottom Sheet */
-        .bottom-sheet {
-            position: fixed;
-            inset: 0;
-            z-index: 50;
-            display: flex;
-            flex-direction: column;
-            pointer-events: none;
-        }
-        .bottom-sheet.active { pointer-events: auto; }
-        
-        .bottom-sheet-backdrop {
-            position: absolute;
-            inset: 0;
-            background: rgba(0,0,0,0.5);
-            opacity: 0;
-            transition: opacity 0.3s;
-        }
-        .bottom-sheet.active .bottom-sheet-backdrop { opacity: 1; }
-        
-        .bottom-sheet-content {
-            position: relative;
-            margin-top: auto;
-            background: white;
-            border-radius: 24px 24px 0 0;
-            max-height: 90vh;
-            overflow-y: auto;
-            transform: translateY(100%);
-            transition: transform 0.3s ease-out;
-        }
-        .bottom-sheet.active .bottom-sheet-content { transform: translateY(0); }
-        
-        /* Toast */
-        .toast-container {
-            position: fixed;
-            bottom: 100px;
-            left: 16px;
-            right: 16px;
-            z-index: 100;
-            pointer-events: none;
-        }
-    </style>
     
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <!-- Supabase -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-</head>
-<body class="bg-gray-50">
     
-    <!-- ==================== LOGIN SCREEN ==================== -->
-    <div id="loginScreen" class="fixed inset-0 bg-white z-50 flex flex-col">
-        <!-- Header -->
-        <div class="flex-1 flex flex-col items-center justify-center px-8">
-            <div class="w-24 h-24 bg-primary-100 rounded-3xl flex items-center justify-center mb-6">
-                <svg class="w-12 h-12 text-primary-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"></circle>
-                    <path d="M12 6v6l4 2"></path>
-                </svg>
-            </div>
-            
-            <h1 class="text-2xl font-bold text-gray-900 mb-2">Babycrafts</h1>
-            <p class="text-gray-500 mb-8">Atelier Pro V3</p>
-            
-            <!-- PIN Display -->
-            <div class="flex gap-4 mb-8">
-                <div class="pin-dot"></div>
-                <div class="pin-dot"></div>
-                <div class="pin-dot"></div>
-                <div class="pin-dot"></div>
-            </div>
-            
-            <p id="pinError" class="text-red-500 text-sm mb-6 hidden">Ongeldige PIN code</p>
-            
-            <!-- Keypad -->
-            <div class="grid grid-cols-3 gap-4">
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('1')">1</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('2')">2</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('3')">3</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('4')">4</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('5')">5</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('6')">6</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('7')">7</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('8')">8</button>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('9')">9</button>
-                <div class="w-16 h-16"></div>
-                <button type="button" class="pin-key w-16 h-16 rounded-2xl bg-gray-100 text-xl font-semibold active:bg-gray-200 transition-colors" onclick="pinDigit('0')">0</button>
-                <button type="button" onclick="pinBackspace()" class="w-16 h-16 rounded-2xl bg-gray-100 flex items-center justify-center active:bg-gray-200 transition-colors">
-                    <i data-lucide="delete" class="w-6 h-6"></i>
-                </button>
-            </div>
-        </div>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: { 50: '#fffbeb', 100: '#fef3c7', 200: '#fde68a', 300: '#fcd34d', 400: '#fbbf24', 500: '#f59e0b', 600: '#d97706', 700: '#b45309', 800: '#92400e', 900: '#78350f' },
+                        secondary: { 50: '#fafaf9', 100: '#f5f5f4', 200: '#e7e5e4', 300: '#d6d3d1', 400: '#a8a29e', 500: '#78716c', 600: '#57534e', 700: '#44403c', 800: '#292524', 900: '#1c1917' }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        * { -webkit-tap-highlight-color: transparent; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .safe-top { padding-top: env(safe-area-inset-top); }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
         
-        <div class="p-6 text-center text-sm text-gray-400">
-            © 2024 Babycrafts Atelier
+        /* Loading skeleton */
+        .skeleton { background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+        @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+        
+        /* Bottom sheet */
+        .bottom-sheet { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; pointer-events: none; }
+        .bottom-sheet.active { pointer-events: auto; }
+        .bottom-sheet-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.5); opacity: 0; transition: opacity 0.3s; }
+        .bottom-sheet.active .bottom-sheet-backdrop { opacity: 1; }
+        .bottom-sheet-content { position: relative; margin-top: auto; background: white; border-radius: 24px 24px 0 0; max-height: 90vh; overflow: hidden; transform: translateY(100%); transition: transform 0.3s ease-out; }
+        .bottom-sheet.active .bottom-sheet-content { transform: translateY(0); }
+        
+        /* Side menu */
+        .side-menu { position: fixed; top: 0; left: 0; bottom: 0; width: 280px; background: white; z-index: 50; transform: translateX(-100%); transition: transform 0.3s; box-shadow: 4px 0 24px rgba(0,0,0,0.1); }
+        .side-menu.open { transform: translateX(0); }
+        .menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 40; opacity: 0; pointer-events: none; transition: opacity 0.3s; }
+        .menu-overlay.visible { opacity: 1; pointer-events: auto; }
+        
+        /* Toast */
+        .toast-container { position: fixed; bottom: 100px; left: 16px; right: 16px; z-index: 100; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+        .toast { background: white; padding: 16px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.15); display: flex; align-items: center; gap: 12px; transform: translateY(100px); opacity: 0; transition: all 0.3s; pointer-events: auto; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        .toast-success { border-left: 4px solid #10b981; }
+        .toast-error { border-left: 4px solid #ef4444; }
+        .toast-info { border-left: 4px solid #3b82f6; }
+        
+        /* Offline indicator */
+        .offline-indicator { position: fixed; top: 0; left: 0; right: 0; background: #ef4444; color: white; text-align: center; padding: 8px; font-size: 14px; font-weight: 500; z-index: 60; transform: translateY(-100%); transition: transform 0.3s; }
+        .offline-indicator.show { transform: translateY(0); }
+        
+        /* Animations */
+        .fade-in { animation: fadeIn 0.3s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .pulse-ring { position: relative; }
+        .pulse-ring::before { content: ''; position: absolute; inset: -4px; border-radius: 50%; border: 2px solid #10b981; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0; } }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+        
+        /* Order card */
+        .order-card { transition: all 0.2s; }
+        .order-card:active { transform: scale(0.98); }
+        
+        /* Phase badges */
+        .phase-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+        
+        /* Search input */
+        .search-input { background: #f3f4f6; border: none; border-radius: 12px; padding: 12px 16px 12px 44px; width: 100%; font-size: 16px; transition: all 0.2s; }
+        .search-input:focus { background: white; box-shadow: 0 0 0 2px #f59e0b; outline: none; }
+        
+        /* PIN Login */
+        .pin-dot { transition: all 0.2s; }
+        .pin-dot.filled { border-color: #f59e0b; background: #f59e0b; color: white; }
+        .pin-dot.active { border-color: #f59e0b; box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.2); }
+        .pin-key:active { transform: scale(0.95); background: #f3f4f6; }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+    <!-- Offline Indicator -->
+    <div id="offlineIndicator" class="offline-indicator safe-top">
+        <span>⚠️ Geen internetverbinding - Sommige functies werken mogelijk niet</span>
+    </div>
+
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen" class="fixed inset-0 bg-gradient-to-br from-primary-50 to-white z-50 flex flex-col">
+        <div class="safe-top"></div>
+        <div class="flex-1 flex items-center justify-center p-6">
+            <div class="w-full max-w-sm">
+                <div class="text-center mb-8">
+                    <div class="w-24 h-24 mx-auto mb-4 bg-white rounded-3xl shadow-lg flex items-center justify-center p-4">
+                        <img src="https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png" alt="Babycrafts" class="w-full h-full object-contain">
+                    </div>
+                    <h1 class="text-2xl font-bold text-gray-900 mb-1">Babycrafts</h1>
+                    <p class="text-gray-500 text-sm">Atelier Management Pro</p>
+                </div>
+                
+                <!-- PIN Login -->
+                <div id="pinLogin">
+                    <p class="text-center text-gray-600 mb-6">Voer uw toegangscode in</p>
+                    
+                    <!-- PIN Display -->
+                    <div class="flex justify-center gap-3 mb-8">
+                        <div class="pin-dot w-14 h-14 rounded-2xl bg-white border-2 border-gray-200 flex items-center justify-center text-2xl font-bold transition-all" data-index="0"></div>
+                        <div class="pin-dot w-14 h-14 rounded-2xl bg-white border-2 border-gray-200 flex items-center justify-center text-2xl font-bold transition-all" data-index="1"></div>
+                        <div class="pin-dot w-14 h-14 rounded-2xl bg-white border-2 border-gray-200 flex items-center justify-center text-2xl font-bold transition-all" data-index="2"></div>
+                        <div class="pin-dot w-14 h-14 rounded-2xl bg-white border-2 border-gray-200 flex items-center justify-center text-2xl font-bold transition-all" data-index="3"></div>
+                    </div>
+                    
+                    <p id="pinError" class="text-center text-red-500 text-sm mb-4 hidden">Ongeldige code</p>
+                    
+                    <!-- PIN Keypad -->
+                    <div class="grid grid-cols-3 gap-3 mb-4">
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="1">1</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="2">2</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="3">3</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="4">4</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="5">5</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="6">6</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="7">7</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="8">8</button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="9">9</button>
+                        <button class="py-4 rounded-2xl text-sm font-medium text-gray-400" disabled></button>
+                        <button class="pin-key py-4 bg-white rounded-2xl text-xl font-semibold shadow-sm hover:bg-gray-50 active:scale-95 transition-all" data-key="0">0</button>
+                        <button id="pinBackspace" class="py-4 bg-gray-100 rounded-2xl flex items-center justify-center hover:bg-gray-200 active:scale-95 transition-all">
+                            <i data-lucide="delete" class="w-6 h-6 text-gray-600"></i>
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="mt-6 text-center">
+                    <p class="text-xs text-gray-400">© Babycrafts Atelier</p>
+                </div>
+            </div>
         </div>
     </div>
-    
-    <!-- ==================== MAIN APP ==================== -->
-    <div id="mainApp" class="hidden min-h-screen flex flex-col">
-        
+
+    <!-- MAIN APP -->
+    <div id="mainApp" class="hidden h-screen flex flex-col">
         <!-- Header -->
-        <header class="bg-white safe-top sticky top-0 z-30 border-b border-gray-100">
-            <div class="flex items-center justify-between px-4 py-3">
-                <button onclick="UI.openMenu()" class="p-2 -ml-2 hover:bg-gray-100 rounded-xl">
-                    <i data-lucide="menu" class="w-6 h-6"></i>
-                </button>
-                
-                <h1 id="pageTitle" class="text-lg font-semibold">Dashboard</h1>
-                
-                <button onclick="App.showNewOrderForm()" class="p-2 -mr-2 bg-primary-100 text-primary-600 rounded-xl hover:bg-primary-200 transition-colors">
-                    <i data-lucide="plus" class="w-5 h-5"></i>
-                </button>
+        <header class="bg-white border-b border-gray-200 safe-top flex-shrink-0">
+            <div class="px-4 py-3 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <button id="menuBtn" class="p-2 -ml-2 hover:bg-gray-100 rounded-xl transition-colors">
+                        <i data-lucide="menu" class="w-6 h-6 text-gray-700"></i>
+                    </button>
+                    <h1 id="pageTitle" class="text-lg font-bold text-gray-900">Dashboard</h1>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div id="syncStatus" class="w-2 h-2 rounded-full bg-green-500 pulse-ring"></div>
+                    <button onclick="App.showAIAssistant()" class="p-2 bg-purple-100 text-purple-700 rounded-xl hover:bg-purple-200 transition-colors" title="AI Assistent">
+                        <i data-lucide="bot" class="w-6 h-6"></i>
+                    </button>
+                    <button onclick="App.showNewOrderForm()" class="p-2 bg-primary-100 text-primary-700 rounded-xl hover:bg-primary-200 transition-colors">
+                        <i data-lucide="plus" class="w-6 h-6"></i>
+                    </button>
+                </div>
             </div>
         </header>
-        
+
+        <!-- Search Bar (visible on orders page) -->
+        <div id="searchBar" class="hidden bg-white border-b border-gray-200 px-4 py-3">
+            <div class="relative">
+                <i data-lucide="search" class="w-5 h-5 text-gray-400 absolute left-4 top-1/2 -translate-y-1/2"></i>
+                <input type="text" id="searchInput" placeholder="Zoek orders..." 
+                       class="search-input">
+            </div>
+        </div>
+
         <!-- Main Content -->
-        <main id="mainContent" class="flex-1 overflow-y-auto pb-24">
-            <!-- Content wordt hier geladen -->
+        <main id="mainContent" class="flex-1 overflow-y-auto p-4" style="padding-bottom: calc(4rem + max(env(safe-area-inset-bottom, 0px), 20px) + 20px);">
+            <!-- Dynamic content loaded here -->
         </main>
-        
-        
+
         <!-- Bottom Navigation -->
-        <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 safe-bottom z-30">
-            <div class="flex items-center justify-around px-2 py-2">
-                <button onclick="App.navigate('dashboard')" data-page="dashboard" class="nav-item flex flex-col items-center gap-1 p-2 text-amber-600">
+        <nav class="bg-white border-t border-gray-200 flex-shrink-0" style="padding-bottom: max(env(safe-area-inset-bottom, 0px), 20px);">
+            <div class="flex justify-around items-center h-16 px-2">
+                <button onclick="App.navigate('dashboard')" class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400 hover:text-primary-600" data-page="dashboard">
                     <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
-                    <span class="text-xs">Home</span>
+                    <span class="text-[10px] font-medium">Home</span>
                 </button>
-                
-                <button onclick="App.navigate('orders')" data-page="orders" class="nav-item flex flex-col items-center gap-1 p-2 text-gray-400">
+                <button onclick="App.navigate('orders')" class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400 hover:text-primary-600" data-page="orders">
                     <i data-lucide="package" class="w-5 h-5"></i>
-                    <span class="text-xs">Orders</span>
+                    <span class="text-[10px] font-medium">Orders</span>
                 </button>
-                
-                <button onclick="App.navigate('nazorg')" data-page="nazorg" class="nav-item flex flex-col items-center gap-1 p-2 text-gray-400">
-                    <i data-lucide="heart-handshake" class="w-5 h-5"></i>
-                    <span class="text-xs">Nazorg</span>
-                </button>
-                
-                <button onclick="App.navigate('archief')" data-page="archief" class="nav-item flex flex-col items-center gap-1 p-2 text-gray-400">
+                <button onclick="App.navigate('archief')" class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400 hover:text-primary-600" data-page="archief">
                     <i data-lucide="archive" class="w-5 h-5"></i>
-                    <span class="text-xs">Archief</span>
+                    <span class="text-[10px] font-medium">Archief</span>
+                </button>
+                <button onclick="App.navigate('nazorg')" class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400 hover:text-primary-600" data-page="nazorg">
+                    <i data-lucide="heart-handshake" class="w-5 h-5"></i>
+                    <span class="text-[10px] font-medium">Nazorg</span>
+                </button>
+                <button onclick="App.navigate('todos')" class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400 hover:text-primary-600" data-page="todos">
+                    <i data-lucide="check-square" class="w-5 h-5"></i>
+                    <span class="text-[10px] font-medium">Taken</span>
+                </button>
+                <button onclick="App.navigate('settings')" class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400 hover:text-primary-600" data-page="settings">
+                    <i data-lucide="settings" class="w-5 h-5"></i>
+                    <span class="text-[10px] font-medium">Inst.</span>
                 </button>
             </div>
         </nav>
     </div>
-    
-    
-    <!-- ==================== SIDE MENU ==================== -->
-    <div id="menuOverlay" class="menu-overlay" onclick="UI.closeMenu()"></div>
-    
-    <aside id="sideMenu" class="side-menu">
-        <div class="p-6 border-b border-gray-100">
-            <h2 class="text-xl font-bold">Babycrafts</h2>
-            <p class="text-sm text-gray-500">Atelier Pro</p>
+
+    <!-- SIDE MENU -->
+    <div id="menuOverlay" class="menu-overlay" onclick="App.toggleMenu()"></div>
+    <div id="sideMenu" class="side-menu">
+        <div class="safe-top bg-gradient-to-br from-primary-500 to-primary-600 p-6 text-white">
+            <div class="flex items-center gap-4">
+                <div class="w-14 h-14 bg-white/20 rounded-2xl flex items-center justify-center">
+                    <img src="https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png" alt="Babycrafts" class="w-10 h-10 object-contain">
+                </div>
+                <div>
+                    <p id="menuUserName" class="font-bold text-lg">Gebruiker</p>
+                    <p id="menuUserRole" class="text-primary-100 text-sm">Atelier medewerker</p>
+                </div>
+            </div>
         </div>
-        
-        <nav class="p-4 space-y-1">
-            <button onclick="App.navigate('dashboard')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 transition-colors">
-                <i data-lucide="layout-dashboard" class="w-5 h-5"></i>
+        <div class="p-4 space-y-1">
+            <button onclick="App.navigate('dashboard'); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors">
+                <i data-lucide="layout-dashboard" class="w-5 h-5 text-gray-400"></i>
                 <span>Dashboard</span>
             </button>
-            
-            <button onclick="App.navigate('orders')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 transition-colors">
-                <i data-lucide="package" class="w-5 h-5"></i>
+            <button onclick="App.showAIAssistant(); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-purple-50 transition-colors">
+                <i data-lucide="bot" class="w-5 h-5 text-purple-500"></i>
+                <span>AI Assistent</span>
+            </button>
+            <button onclick="App.navigate('schema'); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors">
+                <i data-lucide="columns" class="w-5 h-5 text-gray-400"></i>
+                <span>Productie Schema</span>
+            </button>
+            <button onclick="App.navigate('orders'); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors">
+                <i data-lucide="package" class="w-5 h-5 text-gray-400"></i>
                 <span>Alle Orders</span>
             </button>
-            
-            <button onclick="App.navigate('nazorg')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 transition-colors">
-                <i data-lucide="heart-handshake" class="w-5 h-5"></i>
+            <button onclick="App.navigate('nazorg'); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors">
+                <i data-lucide="heart-handshake" class="w-5 h-5 text-gray-400"></i>
                 <span>Nazorg</span>
+                <span id="nazorgBadge" class="ml-auto bg-green-500 text-white text-xs px-2 py-0.5 rounded-full hidden">0</span>
             </button>
-            
-            <button onclick="App.navigate('archief')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 transition-colors">
-                <i data-lucide="archive" class="w-5 h-5"></i>
+            <button onclick="App.navigate('archief'); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors">
+                <i data-lucide="archive" class="w-5 h-5 text-gray-400"></i>
                 <span>Archief</span>
             </button>
-            
-            <hr class="my-4 border-gray-100">
-            
-            <button onclick="App.navigate('settings')" class="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-gray-100 transition-colors">
-                <i data-lucide="settings" class="w-5 h-5"></i>
-                <span>Instellingen</span>
+            <button onclick="App.navigate('analytics'); App.toggleMenu()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-gray-700 hover:bg-gray-100 transition-colors">
+                <i data-lucide="bar-chart-3" class="w-5 h-5 text-gray-400"></i>
+                <span>Analytics</span>
             </button>
-        </nav>
-    </aside>
-    
-    
-    <!-- ==================== BOTTOM SHEET ==================== -->
-    <div id="bottomSheet" class="bottom-sheet">
-        <div id="bottomSheetBackdrop" class="bottom-sheet-backdrop"></div>
-        <div id="bottomSheetContent" class="bottom-sheet-content">
-            <!-- Content wordt hier geladen -->
+        </div>
+        <div class="absolute bottom-0 left-0 right-0 p-4 safe-bottom border-t border-gray-200 bg-white">
+            <button onclick="App.logout()" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl text-red-600 hover:bg-red-50 transition-colors">
+                <i data-lucide="log-out" class="w-5 h-5"></i>
+                <span>Uitloggen</span>
+            </button>
         </div>
     </div>
-    
-    
-    <!-- ==================== TOAST CONTAINER ==================== -->
-    <div id="toastContainer" class="toast-container flex flex-col gap-2"></div>
-    
-    <!-- ==================== SCRIPTS ==================== -->
+
+    <!-- NEW ORDER BOTTOM SHEET -->
+    <div id="newOrderSheet" class="bottom-sheet">
+        <div class="bottom-sheet-backdrop" onclick="App.closeNewOrder()"></div>
+        <div class="bottom-sheet-content">
+            <div class="sticky top-0 bg-white p-4 border-b border-gray-200 flex items-center justify-between z-10">
+                <h3 class="font-bold text-lg text-gray-900">Nieuwe Order</h3>
+                <button onclick="App.closeNewOrder()" class="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                    <i data-lucide="x" class="w-5 h-5 text-gray-500"></i>
+                </button>
+            </div>
+            <form id="newOrderForm" class="p-4 space-y-4 overflow-y-auto max-h-[70vh]">
+                <!-- Klantgegevens -->
+                <div class="bg-primary-50 rounded-2xl p-4 space-y-3">
+                    <h4 class="text-sm font-semibold text-primary-800 flex items-center gap-2">
+                        <i data-lucide="user" class="w-4 h-4"></i>Klantgegevens
+                    </h4>
+                    <input type="text" name="klant_naam" placeholder="Naam klant *" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    <input type="email" name="klant_email" placeholder="Email *" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    <input type="tel" name="klant_telefoon" placeholder="Telefoonnummer" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                </div>
+                
+                <!-- Afleveradres -->
+                <div class="bg-blue-50 rounded-2xl p-4 space-y-3">
+                    <h4 class="text-sm font-semibold text-blue-800 flex items-center gap-2">
+                        <i data-lucide="map-pin" class="w-4 h-4"></i>Afleveradres
+                    </h4>
+                    <div class="grid grid-cols-3 gap-2">
+                        <input type="text" name="straat" placeholder="Straat *" required class="col-span-2 w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <input type="text" name="huisnummer" placeholder="Nr *" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="text" name="postcode" placeholder="Postcode *" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm uppercase focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <input type="text" name="plaats" placeholder="Plaats *" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    </div>
+                </div>
+                
+                <!-- Product Details -->
+                <div class="bg-gray-50 rounded-2xl p-4 space-y-3">
+                    <h4 class="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                        <i data-lucide="package" class="w-4 h-4"></i>Product Details
+                    </h4>
+                    <select name="collectie" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <option value="">Selecteer collectie *</option>
+                        <option value="Figura">Figura</option>
+                        <option value="Arte-Lumina">Arte-Lumina</option>
+                        <option value="Natura-Alba">Natura-Alba</option>
+                        <option value="Atelier-Bronze">Atelier-Bronze</option>
+                        <option value="Gegoten Brons">Gegoten Brons</option>
+                        <option value="Ouder & Kind">Ouder & Kind</option>
+                        <option value="Babybeeld">Babybeeld</option>
+                        <option value="Aangepast">Aangepast</option>
+                    </select>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="number" name="hoogte_cm" placeholder="Hoogte cm *" min="14" max="100" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <input type="text" name="kleur_afwerking" placeholder="Kleur afwerking" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    </div>
+                    <select name="sokkel" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <option value="">Sokkel *</option>
+                        <option value="Met">Met</option>
+                        <option value="Zonder">Zonder</option>
+                        <option value="Met én Vast">Met én Vast</option>
+                    </select>
+                </div>
+                
+                <!-- Planning -->
+                <div class="bg-green-50 rounded-2xl p-4 space-y-3">
+                    <h4 class="text-sm font-semibold text-green-800 flex items-center gap-2">
+                        <i data-lucide="calendar" class="w-4 h-4"></i>Planning
+                    </h4>
+                    <div>
+                        <label class="block text-xs text-gray-500 mb-1">Scandatum</label>
+                        <input type="date" name="scan_datum" id="scanDatumInputHtml" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                        <p class="text-xs text-gray-500 mt-1">Deadline wordt automatisch 6 weken na scandatum bepaald</p>
+                    </div>
+                </div>
+                
+                <!-- Notities -->
+                <textarea name="extra_notities" placeholder="Extra notities..." rows="3" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"></textarea>
+                
+                <!-- Toestemming -->
+                <label class="flex items-start gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
+                    <input type="checkbox" name="toestemming_delen" class="mt-1 w-5 h-5 text-primary-600 rounded border-gray-300 focus:ring-primary-500">
+                    <div>
+                        <span class="text-sm font-medium text-gray-900">Toestemming voor delen</span>
+                        <p class="text-xs text-gray-500">Klant geeft toestemming voor gebruik op sociale media</p>
+                    </div>
+                </label>
+                
+                <!-- Submit -->
+                <button type="submit" id="submitOrderBtn" class="w-full py-4 bg-primary-600 hover:bg-primary-700 text-white font-semibold rounded-xl shadow-lg shadow-primary-500/30 transition-all active:scale-95 flex items-center justify-center gap-2">
+                    <span>Order Aanmaken</span>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ORDER DETAIL BOTTOM SHEET -->
+    <div id="detailSheet" class="bottom-sheet">
+        <div class="bottom-sheet-backdrop" onclick="App.closeDetail()"></div>
+        <div class="bottom-sheet-content">
+            <div class="sticky top-0 bg-white p-4 border-b border-gray-200 flex items-center justify-between z-10">
+                <h3 class="font-bold text-lg text-gray-900" id="detailTitle">Order Details</h3>
+                <button onclick="App.closeDetail()" class="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+                    <i data-lucide="x" class="w-5 h-5 text-gray-500"></i>
+                </button>
+            </div>
+            <div id="detailContent" class="p-4 space-y-4 overflow-y-auto max-h-[70vh]">
+                <!-- Dynamic content -->
+            </div>
+        </div>
+    </div>
+
+    <!-- CONFIRMATION MODAL -->
+    <div id="confirmModal" class="fixed inset-0 z-[60] hidden items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/50" onclick="App.closeConfirmModal()"></div>
+        <div class="relative bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <div class="text-center">
+                <div id="confirmIcon" class="w-14 h-14 mx-auto mb-4 bg-red-100 rounded-full flex items-center justify-center">
+                    <i data-lucide="alert-triangle" class="w-7 h-7 text-red-600"></i>
+                </div>
+                <h3 id="confirmTitle" class="text-lg font-bold text-gray-900 mb-2">Weet je het zeker?</h3>
+                <p id="confirmMessage" class="text-gray-500 mb-6">Deze actie kan niet ongedaan worden gemaakt.</p>
+                <div class="flex gap-3">
+                    <button onclick="App.closeConfirmModal()" class="flex-1 py-3 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition-colors">Annuleren</button>
+                    <button id="confirmAction" class="flex-1 py-3 bg-red-600 text-white font-medium rounded-xl hover:bg-red-700 transition-colors">Bevestigen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST CONTAINER -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- LOADING OVERLAY -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-white/80 backdrop-blur-sm z-[70] hidden flex items-center justify-center">
+        <div class="flex flex-col items-center gap-4">
+            <div class="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin"></div>
+            <p class="text-gray-600 font-medium">Laden...</p>
+        </div>
+    </div>
+
+    <!-- SCRIPTS -->
+    <script src="js/config.js"></script>
+    <script src="js/utils.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/components.js"></script>
+    <script src="js/repository.js"></script>
+    <script src="js/audit.js"></script>
+    <script src="js/orders.js"></script>
+    <script src="js/todos.js"></script>
+    <script src="js/time.js"></script>
+    <script src="js/communications.js"></script>
+    <script src="js/ai-agent.js"></script>
     <script src="js/app.js"></script>
+    
+    <script>
+        // Initialize app when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+            App.initialize();
+        });
+    </script>
 </body>
 </html>
