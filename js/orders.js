@@ -118,9 +118,11 @@ const OrdersModule = {
      */
     async create(formData, userId) {
         try {
+            alert('DEBUG OrdersModule.create: Starting...');
             console.log('OrdersModule.create called with:', { formData, userId });
             
             const orderId = Utils.generateOrderId(this.orders);
+            alert('DEBUG OrdersModule.create: Generated order ID: ' + orderId);
             
             // Handle custom collectie
             let collectie = formData.collectie;
@@ -129,6 +131,7 @@ const OrdersModule = {
             }
             
             const workflow = getWorkflowForCollectie(collectie);
+            alert('DEBUG OrdersModule.create: Workflow: ' + workflow);
             
             const orderData = {
                 order_id: orderId,
@@ -154,17 +157,11 @@ const OrdersModule = {
                 public_token: Utils.generatePublicToken()
             };
             
-            // Only set user fields if it's a real Supabase user (UUID), not a local PIN user
-            if (userId && !userId.startsWith('local_')) {
-                orderData.verantwoordelijke_user = userId;
-                orderData.created_by = userId;
-            }
-            
-            console.log('Order data prepared:', orderData);
+            alert('DEBUG OrdersModule.create: Calling Repository.orders.create...');
             
             const order = await Repository.orders.create(orderData, userId);
             
-            console.log('Repository response:', order);
+            alert('DEBUG OrdersModule.create: Repository returned: ' + (order ? 'SUCCESS' : 'NULL'));
             
             if (order) {
                 this.orders.unshift(order);
@@ -174,6 +171,7 @@ const OrdersModule = {
             return order;
             
         } catch (error) {
+            alert('DEBUG OrdersModule.create ERROR: ' + (error?.message || 'Unknown'));
             console.error('OrdersModule.create error:', error);
             throw error;
         }

@@ -1413,26 +1413,31 @@ const App = {
                 form.addEventListener('submit', async function(e) {
                     e.preventDefault();
                     
-                    // Debug: show we're starting
+                    // CRITICAL: Stop event propagation completely
+                    e.stopPropagation();
+                    
                     alert('DEBUG: Form submit started');
                     
-                    // BELANGRIJK: Zorg dat sessie altijd beschikbaar is
-                    if (!app.currentUser) {
-                        const savedSession = localStorage.getItem('babycrafts_session');
-                        if (savedSession) {
-                            try {
-                                app.currentUser = JSON.parse(savedSession);
-                            } catch (err) {
-                                alert('DEBUG: Session parse error');
-                            }
+                    // Get current user directly from localStorage every time
+                    let currentUser = null;
+                    const savedSession = localStorage.getItem('babycrafts_session');
+                    if (savedSession) {
+                        try {
+                            currentUser = JSON.parse(savedSession);
+                            // Update App.currentUser too
+                            App.currentUser = currentUser;
+                        } catch (err) {
+                            alert('DEBUG: Session parse error');
                         }
                     }
                     
-                    if (!app.currentUser?.id) {
+                    if (!currentUser?.id) {
                         alert('DEBUG: No user logged in!');
-                        app.showLoginScreen();
+                        App.showLoginScreen();
                         return;
                     }
+                    
+                    alert('DEBUG: User is: ' + currentUser.user_metadata?.name);
                     
                     const formData = Object.fromEntries(new FormData(e.target));
                     
@@ -1452,14 +1457,14 @@ const App = {
                     
                     try {
                         alert('DEBUG: Calling OrdersModule.create...');
-                        const order = await OrdersModule.create(formData, app.currentUser?.id);
+                        const order = await OrdersModule.create(formData, currentUser.id);
                         
                         if (order) {
-                            alert('DEBUG: Order created successfully!');
+                            alert('DEBUG: Order created! ID: ' + order.order_id);
                             UI.showToast('Order aangemaakt!', 'success');
                             UI.closeBottomSheet();
                             await OrdersModule.load();
-                            app.renderCurrentPage();
+                            App.renderCurrentPage();
                         } else {
                             alert('DEBUG: Order is null!');
                             UI.showToast('Order kon niet worden aangemaakt', 'error', 5000);
