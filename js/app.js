@@ -3,9 +3,6 @@
  * Complete rewrite - clean, working, beautiful
  */
 
-// Test if JS is loading
-alert('DEBUG: app.js loaded!');
-
 // ============================================
 // CONFIGURATION
 // ============================================
@@ -54,7 +51,6 @@ function _updatePinDots() {
 }
 
 function pinDigit(digit) {
-    alert('DEBUG: pinDigit called with ' + digit);
     if (_pinInput.length < 4) {
         _pinInput += digit;
         _updatePinDots();
@@ -66,7 +62,6 @@ function pinDigit(digit) {
 }
 
 function pinBackspace() {
-    alert('DEBUG: pinBackspace called');
     _pinInput = _pinInput.slice(0, -1);
     _updatePinDots();
 }
