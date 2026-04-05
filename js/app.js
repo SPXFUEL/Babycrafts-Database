@@ -441,17 +441,27 @@ const App = {
     },
     
     setupEventListeners() {
-        // PIN keypad
+        // PIN keypad - support both click and touch
+        const handlePinKey = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const digit = e.currentTarget.dataset.key;
+            if (digit) this.handlePinDigit(digit);
+        };
+        
         document.querySelectorAll('.pin-key').forEach(key => {
-            key.addEventListener('click', (e) => {
-                const digit = e.currentTarget.dataset.key;
-                if (digit) this.handlePinDigit(digit);
-            });
+            key.addEventListener('click', handlePinKey);
+            key.addEventListener('touchstart', handlePinKey, {passive: false});
         });
         
-        document.getElementById('pinBackspace')?.addEventListener('click', () => {
+        const handleBackspace = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             this.handlePinBackspace();
-        });
+        };
+        
+        document.getElementById('pinBackspace')?.addEventListener('click', handleBackspace);
+        document.getElementById('pinBackspace')?.addEventListener('touchstart', handleBackspace, {passive: false});
         
         // Close bottom sheet on backdrop click
         document.getElementById('bottomSheetBackdrop')?.addEventListener('click', () => {
@@ -515,6 +525,10 @@ const App = {
         this.updatePinDisplay();
         UI.show('loginScreen');
         UI.hide('mainApp');
+        // Initialize icons for login screen (delete button)
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
     },
     
     showMainApp() {
