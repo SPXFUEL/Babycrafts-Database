@@ -1396,88 +1396,91 @@ const App = {
                 });
             }
 
-            document.getElementById('newOrderForm')?.addEventListener('submit', async (e) => {
-                e.preventDefault();
+            const form = document.getElementById('newOrderForm');
+            if (form) {
+                // Store reference to App context
+                const app = this;
                 
-                // BELANGRIJK: Zorg dat sessie altijd beschikbaar is
-                if (!this.currentUser) {
-                    console.log('Sessie niet in memory, probeer uit localStorage te laden...');
-                    const savedSession = localStorage.getItem('babycrafts_session');
-                    if (savedSession) {
-                        try {
-                            this.currentUser = JSON.parse(savedSession);
-                            console.log('Sessie hersteld uit localStorage:', this.currentUser);
-                        } catch (e) {
-                            console.error('Kon sessie niet parsen:', e);
+                form.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    
+                    // BELANGRIJK: Zorg dat sessie altijd beschikbaar is
+                    if (!app.currentUser) {
+                        console.log('Sessie niet in memory, probeer uit localStorage te laden...');
+                        const savedSession = localStorage.getItem('babycrafts_session');
+                        if (savedSession) {
+                            try {
+                                app.currentUser = JSON.parse(savedSession);
+                                console.log('Sessie hersteld uit localStorage:', app.currentUser);
+                            } catch (err) {
+                                console.error('Kon sessie niet parsen:', err);
+                            }
                         }
                     }
-                }
-                
-                console.log('=== SUBMIT HANDLER START ===');
-                console.log('this.currentUser:', this.currentUser);
-                console.log('this.currentUser?.id:', this.currentUser?.id);
-                
-                if (!this.currentUser?.id) {
-                    console.error('❌ Geen gebruiker ingelogd bij submit!');
-                    UI.showToast('❌ Je bent niet ingelogd. Log opnieuw in.', 'error', 5000);
-                    this.showLoginScreen();
-                    return;
-                }
-                
-                const formData = Object.fromEntries(new FormData(e.target));
-                
-                // Add calculated deadline if scan date is set
-                const scanDatumInput = document.getElementById('scanDatumInput');
-                if (scanDatumInput?.dataset.deadline) {
-                    formData.deadline = scanDatumInput.dataset.deadline;
-                }
-                
-                // Debug logging
-                console.log('Form data:', formData);
-                console.log('User ID:', this.currentUser?.id);
-                
-                // Show loading state
-                const submitBtn = e.target.querySelector('button[type="submit"]');
-                const originalText = submitBtn?.textContent || 'Opslaan';
-                if (submitBtn) {
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Bezig met opslaan...';
-                }
-                
-                try {
-                    console.log('Roep OrdersModule.create aan...');
-                    const order = await OrdersModule.create(formData, this.currentUser?.id);
-                    console.log('Order resultaat:', order);
                     
-                    if (order) {
-                        UI.showToast('✅ Order succesvol aangemaakt!', 'success');
-                        UI.closeBottomSheet();
-                        console.log('currentUser na create:', this.currentUser);
-                        console.log('Herlaad orders...');
-                        await OrdersModule.load();
-                        console.log('currentUser na load:', this.currentUser);
-                        console.log('Render pagina...');
-                        this.renderCurrentPage();
-                        console.log('=== KLAAR ===');
-                    } else {
-                        console.error('Order is null/undefined');
-                        UI.showToast('❌ Order kon niet worden aangemaakt', 'error', 5000);
+                    console.log('=== SUBMIT HANDLER START ===');
+                    console.log('app.currentUser:', app.currentUser);
+                    console.log('app.currentUser?.id:', app.currentUser?.id);
+                    
+                    if (!app.currentUser?.id) {
+                        console.error('❌ Geen gebruiker ingelogd bij submit!');
+                        UI.showToast('❌ Je bent niet ingelogd. Log opnieuw in.', 'error', 5000);
+                        app.showLoginScreen();
+                        return;
                     }
-                } catch (error) {
-                    console.error('=== FOUT ===');
-                    console.error('Error:', error);
-                    console.error('Error message:', error?.message);
-                    console.error('currentUser bij error:', this.currentUser);
                     
-                    const errorMsg = window.lastRepositoryError?.message || error?.message || 'Onbekende fout';
-                    UI.showToast('❌ ' + errorMsg, 'error', 5000);
-                } finally {
+                    const formData = Object.fromEntries(new FormData(e.target));
+                    
+                    // Add calculated deadline if scan date is set
+                    const scanDatumInput = document.getElementById('scanDatumInput');
+                    if (scanDatumInput?.dataset.deadline) {
+                        formData.deadline = scanDatumInput.dataset.deadline;
+                    }
+                    
+                    // Debug logging
+                    console.log('Form data:', formData);
+                    console.log('User ID:', app.currentUser?.id);
+                    
+                    // Show loading state
+                    const submitBtn = e.target.querySelector('button[type="submit"]');
+                    const originalText = submitBtn?.textContent || 'Opslaan';
                     if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalText;
+                        submitBtn.disabled = true;
+                        submitBtn.textContent = 'Bezig met opslaan...';
                     }
-                }
-            });
+                    
+                    try {
+                        console.log('Roep OrdersModule.create aan...');
+                        const order = await OrdersModule.create(formData, app.currentUser?.id);
+                        console.log('Order resultaat:', order);
+                        
+                        if (order) {
+                            UI.showToast('✅ Order succesvol aangemaakt!', 'success');
+                            UI.closeBottomSheet();
+                            console.log('Herlaad orders...');
+                            await OrdersModule.load();
+                            console.log('Render pagina...');
+                            app.renderCurrentPage();
+                            console.log('=== KLAAR ===');
+                        } else {
+                            console.error('Order is null/undefined');
+                            UI.showToast('❌ Order kon niet worden aangemaakt', 'error', 5000);
+                        }
+                    } catch (error) {
+                        console.error('=== FOUT ===');
+                        console.error('Error:', error);
+                        console.error('Error message:', error?.message);
+                        
+                        const errorMsg = window.lastRepositoryError?.message || error?.message || 'Onbekende fout';
+                        UI.showToast('❌ ' + errorMsg, 'error', 5000);
+                    } finally {
+                        if (submitBtn) {
+                            submitBtn.disabled = false;
+                            submitBtn.textContent = originalText;
+                        }
+                    }
+                });
+            }
         }, 100);
     },
 
