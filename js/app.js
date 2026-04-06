@@ -417,10 +417,7 @@ const App = {
 
     // Close new order sheet
     closeNewOrder() {
-        const sheet = document.getElementById('newOrderSheet');
-        if (sheet) {
-            sheet.classList.remove('active');
-        }
+        document.getElementById('newOrderSheet')?.classList.remove('active');
     },
 
     // Navigate to page
@@ -1360,117 +1357,39 @@ const App = {
         });
     },
 
-    // Show new order form
+    // Show new order form - opens the static newOrderSheet from index.html
     showNewOrderForm() {
-        const collecties = ['Figura', 'Arte-Lumina', 'Natura-Alba', 'Ouder & Kind', 'Babybeeld', 'Atelier-Bronze', 'Gegoten Brons', 'Aangepast'];
+        // Reset the form fields
+        const form = document.getElementById('newOrderForm');
+        if (form) form.reset();
 
-        UI.showBottomSheet({
-            title: 'Nieuwe Order',
-            content: `
-                <form id="newOrderForm" class="space-y-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Klantnaam *</label>
-                        <input type="text" name="klant_naam" required class="form-input">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">E-mail *</label>
-                        <input type="email" name="klant_email" required class="form-input">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Telefoon</label>
-                        <input type="tel" name="klant_telefoon" class="form-input">
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Straat</label>
-                            <input type="text" name="straat" class="form-input">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Huisnummer</label>
-                            <input type="text" name="huisnummer" class="form-input">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Postcode</label>
-                            <input type="text" name="postcode" class="form-input">
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Plaats</label>
-                            <input type="text" name="plaats" class="form-input">
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Collectie *</label>
-                            <select name="collectie" required class="form-select">
-                                ${collecties.map(c => `<option value="${c}">${c}</option>`).join('')}
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Hoogte (cm)</label>
-                            <input type="number" name="hoogte_cm" value="20" min="10" max="50" class="form-input">
-                        </div>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Kleurafwerking</label>
-                        <input type="text" name="kleur_afwerking" placeholder="Bijv. Classic White, Soft Cream..." class="form-input">
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Sokkel</label>
-                        <select name="sokkel" class="form-select">
-                            <option value="Zonder">Zonder</option>
-                            <option value="Met">Met</option>
-                            <option value="Met en Vast">Met en Vast</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Scan Datum</label>
-                        <input type="date" name="scan_datum" id="scanDatumInput" class="form-input">
-                        <p class="text-xs text-gray-500 mt-1">Deadline wordt automatisch 6 weken na scandatum</p>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Extra notities</label>
-                        <textarea name="extra_notities" rows="3" class="form-input"></textarea>
-                    </div>
-                    <label class="flex items-center gap-2">
-                        <input type="checkbox" name="toestemming_delen" class="w-4 h-4 text-amber-500 rounded">
-                        <span class="text-sm text-gray-700">Toestemming delen op social media</span>
-                    </label>
-                    <button type="submit" class="w-full py-3 bg-amber-500 text-white rounded-xl font-medium">
-                        Order Aanmaken
-                    </button>
-                </form>
-            `
-        });
+        // Open the static sheet
+        const sheet = document.getElementById('newOrderSheet');
+        if (sheet) sheet.classList.add('active');
 
-        setTimeout(() => {
-            // Add deadline calculation when scan date changes
-            const scanDatumInput = document.getElementById('scanDatumInput');
-            if (scanDatumInput) {
-                scanDatumInput.addEventListener('change', (e) => {
-                    if (e.target.value) {
-                        const scanDate = new Date(e.target.value);
-                        const deadline = new Date(scanDate);
-                        deadline.setDate(deadline.getDate() + 42); // 6 weeks = 42 days
-                        // Store deadline in a data attribute for form submission
-                        e.target.dataset.deadline = deadline.toISOString().split('T')[0];
-                    }
-                });
-            }
+        // Wire up scan date → deadline calculation (once per open)
+        const scanInput = document.getElementById('scanDatumInputHtml');
+        if (scanInput && !scanInput._deadlineListenerAdded) {
+            scanInput.addEventListener('change', (e) => {
+                if (e.target.value) {
+                    const d = new Date(e.target.value);
+                    d.setDate(d.getDate() + 42); // 6 weeks
+                    e.target.dataset.deadline = d.toISOString().split('T')[0];
+                }
+            });
+            scanInput._deadlineListenerAdded = true;
+        }
 
-            document.getElementById('newOrderForm')?.addEventListener('submit', async (e) => {
+        // Wire up form submit (once)
+        if (form && !form._submitListenerAdded) {
+            form.addEventListener('submit', async (e) => {
                 e.preventDefault();
-                
-                // Restore session from localStorage if needed
+
+                // Restore session if needed
                 if (!this.currentUser) {
-                    const savedSession = localStorage.getItem('babycrafts_session');
-                    if (savedSession) {
-                        try {
-                            this.currentUser = JSON.parse(savedSession);
-                        } catch (e) {
-                            // ignore parse error
-                        }
+                    const saved = localStorage.getItem('babycrafts_session');
+                    if (saved) {
+                        try { this.currentUser = JSON.parse(saved); } catch (_) {}
                     }
                 }
 
@@ -1480,28 +1399,32 @@ const App = {
                     return;
                 }
 
-                const formData = Object.fromEntries(new FormData(e.target));
+                const formData = Object.fromEntries(new FormData(form));
 
-                // Add calculated deadline if scan date is set
-                const scanDatumInput = document.getElementById('scanDatumInput');
-                if (scanDatumInput?.dataset.deadline) {
-                    formData.deadline = scanDatumInput.dataset.deadline;
+                // Attach calculated deadline from scan date
+                const sd = document.getElementById('scanDatumInputHtml');
+                if (sd?.dataset.deadline) {
+                    formData.deadline = sd.dataset.deadline;
+                } else if (formData.scan_datum) {
+                    const d = new Date(formData.scan_datum);
+                    d.setDate(d.getDate() + 42);
+                    formData.deadline = d.toISOString().split('T')[0];
                 }
 
-                // Show loading state
-                const submitBtn = e.target.querySelector('button[type="submit"]');
-                const originalText = submitBtn?.textContent || 'Opslaan';
+                const submitBtn = form.querySelector('button[type="submit"]');
+                const originalText = submitBtn?.textContent || 'Order Aanmaken';
                 if (submitBtn) {
                     submitBtn.disabled = true;
-                    submitBtn.textContent = 'Bezig met opslaan...';
+                    submitBtn.textContent = 'Bezig...';
                 }
 
                 try {
-                    const order = await OrdersModule.create(formData, this.currentUser?.id);
+                    const order = await OrdersModule.create(formData, this.currentUser.id);
 
                     if (order) {
                         UI.showToast('Order succesvol aangemaakt!', 'success');
-                        UI.closeBottomSheet();
+                        this.closeNewOrder();
+                        form.reset();
                         await OrdersModule.load();
                         this.renderCurrentPage();
                     } else {
@@ -1517,7 +1440,8 @@ const App = {
                     }
                 }
             });
-        }, 100);
+            form._submitListenerAdded = true;
+        }
     },
 
     // Advance order to next fase
