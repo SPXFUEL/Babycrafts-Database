@@ -118,8 +118,6 @@ const OrdersModule = {
      */
     async create(formData, userId) {
         try {
-            console.log('OrdersModule.create called with:', { formData, userId });
-            
             const orderId = Utils.generateOrderId(this.orders);
             
             // Handle custom collectie
@@ -156,21 +154,16 @@ const OrdersModule = {
                 public_token: Utils.generatePublicToken()
             };
             
-            console.log('Order data prepared:', orderData);
-            
             const order = await Repository.orders.create(orderData, userId);
-            
-            console.log('Repository response:', order);
-            
+
             if (order) {
                 this.orders.unshift(order);
                 this.filteredOrders = [...this.orders];
             }
             
             return order;
-            
+
         } catch (error) {
-            console.error('OrdersModule.create error:', error);
             throw error;
         }
     },
@@ -180,8 +173,6 @@ const OrdersModule = {
      */
     async update(orderId, formData, userId) {
         try {
-            console.log('OrdersModule.update called with:', { orderId, formData, userId });
-            
             const updates = {
                 klant_naam: formData.klant_naam?.trim(),
                 klant_email: formData.klant_email?.trim(),
@@ -199,12 +190,8 @@ const OrdersModule = {
                 deadline: formData.deadline || null
             };
             
-            console.log('Order updates prepared:', updates);
-            
             const order = await Repository.orders.update(orderId, updates, userId);
-            
-            console.log('Repository update response:', order);
-            
+
             // Update local cache
             const index = this.orders.findIndex(o => o.order_id === orderId);
             if (index !== -1) {
@@ -212,9 +199,8 @@ const OrdersModule = {
             }
             
             return order;
-            
+
         } catch (error) {
-            console.error('OrdersModule.update error:', error);
             throw error;
         }
     },

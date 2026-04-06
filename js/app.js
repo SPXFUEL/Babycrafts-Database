@@ -19,8 +19,6 @@ const App = {
 
     // Initialize application
     async initialize() {
-        console.log('App initializing...');
-        
         // Check online status
         this.updateOnlineStatus();
         window.addEventListener('online', () => this.updateOnlineStatus(true));
@@ -56,7 +54,7 @@ const App = {
                     verzenddatum: new Date().toISOString().split('T')[0]
                 }, this.currentUser?.id);
                 UI.showToast('Track & Trace opgeslagen', 'success');
-                this.renderOrdersPage();
+                this.renderCurrentPage();
             } catch (error) {
                 UI.showToast('Fout bij opslaan', 'error');
             }
@@ -64,8 +62,6 @@ const App = {
 
         // Initialize push notifications
         this.initPushNotifications();
-        
-        console.log('App initialized');
     },
 
     // Initialize Supabase
@@ -122,15 +118,12 @@ const App = {
         this.updatePinDisplay();
         this.hidePinError();
         
-        // Setup PIN keypad - CRITICAL: Directly bind to buttons
-        console.log('Setting up PIN keypad...');
+        // Setup PIN keypad
         this.setupPinKeypadDirect();
     },
     
-    // Setup PIN keypad - DIRECT BINDING VERSION (fixes the issue)
+    // Setup PIN keypad
     setupPinKeypadDirect() {
-        console.log('Setting up direct PIN keypad bindings...');
-        
         // Direct binding to each key button
         document.querySelectorAll('.pin-key').forEach(key => {
             // Remove any existing listeners by cloning
@@ -142,17 +135,15 @@ const App = {
                 e.preventDefault();
                 e.stopPropagation();
                 const digit = newKey.dataset.key;
-                console.log('PIN key clicked:', digit);
                 if (digit) {
                     this.handlePinDigit(digit);
                 }
             });
-            
+
             // Add touch handler for mobile
             newKey.addEventListener('touchstart', (e) => {
                 e.preventDefault();
                 const digit = newKey.dataset.key;
-                console.log('PIN key touched:', digit);
                 if (digit) {
                     this.handlePinDigit(digit);
                 }
@@ -168,7 +159,6 @@ const App = {
             newBackspace.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                console.log('Backspace clicked');
                 this.handlePinBackspace();
             });
             
@@ -198,29 +188,23 @@ const App = {
         if (typeof lucide !== 'undefined') {
             lucide.createIcons();
         }
-        
-        console.log('PIN keypad setup complete');
     },
-    
+
     // Handle PIN digit
     handlePinDigit(digit) {
-        console.log('handlePinDigit:', digit, 'current:', this.currentPin);
-        
         if (this.currentPin.length < 4) {
             this.currentPin += digit;
             this.updatePinDisplay();
-            
+
             // Check if complete
             if (this.currentPin.length === 4) {
-                console.log('PIN complete, verifying:', this.currentPin);
                 setTimeout(() => this.verifyPin(), 200);
             }
         }
     },
-    
+
     // Handle PIN backspace
     handlePinBackspace() {
-        console.log('Backspace, current:', this.currentPin);
         this.currentPin = this.currentPin.slice(0, -1);
         this.updatePinDisplay();
         this.hidePinError();
@@ -229,7 +213,6 @@ const App = {
     // Update PIN display
     updatePinDisplay() {
         const dots = document.querySelectorAll('.pin-dot');
-        console.log('Updating display, PIN length:', this.currentPin.length, 'dots:', dots.length);
         dots.forEach((dot, index) => {
             if (index < this.currentPin.length) {
                 dot.textContent = '•';
@@ -319,6 +302,15 @@ const App = {
     showMainApp() {
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').classList.remove('hidden');
+
+        // Update side menu user info
+        const userName = this.currentUser?.user_metadata?.name || 'Gebruiker';
+        const userRole = this.currentUser?.user_metadata?.role === 'admin' ? 'Eigenaar' : 'Medewerker';
+        const menuUserName = document.getElementById('menuUserName');
+        const menuUserRole = document.getElementById('menuUserRole');
+        if (menuUserName) menuUserName.textContent = userName;
+        if (menuUserRole) menuUserRole.textContent = userRole;
+
         this.renderCurrentPage();
     },
 
@@ -373,18 +365,14 @@ const App = {
 
     // Handle new order form submission
     async handleNewOrder(form) {
-        console.log('=== handleNewOrder START ===');
-        console.log('currentUser voor submit:', this.currentUser);
-        
         if (!this.currentUser) {
-            console.error('Geen currentUser bij start handleNewOrder!');
             UI.showToast('Sessie verlopen. Log opnieuw in.', 'error');
             this.showLoginScreen();
             return;
         }
-        
+
         const formData = Object.fromEntries(new FormData(form));
-        
+
         // Calculate deadline (6 weeks from scan date)
         if (formData.scan_datum) {
             const scanDate = new Date(formData.scan_datum);
@@ -392,9 +380,6 @@ const App = {
             deadline.setDate(deadline.getDate() + 42); // 6 weeks
             formData.deadline = deadline.toISOString().split('T')[0];
         }
-        
-        console.log('handleNewOrder - Form data:', formData);
-        console.log('handleNewOrder - Current user:', this.currentUser);
 
         // Show loading state
         const submitBtn = form.querySelector('button[type="submit"]');
@@ -403,39 +388,30 @@ const App = {
             submitBtn.disabled = true;
             submitBtn.textContent = 'Bezig...';
         }
-        
+
         try {
-            console.log('Roep OrdersModule.create aan...');
             const order = await OrdersModule.create(formData, this.currentUser?.id);
-            console.log('OrdersModule.create resultaat:', order);
-            
+
             if (order) {
                 UI.showToast('Order aangemaakt', 'success');
                 this.closeNewOrder();
                 await OrdersModule.load();
                 this.renderCurrentPage();
             } else {
-                console.error('Order is null/undefined');
                 UI.showToast('Order kon niet worden aangemaakt', 'error');
             }
         } catch (error) {
-            console.error('handleNewOrder - ERROR:', error);
-            console.error('Error details:', error?.message, error?.stack);
             const errorMsg = window.lastRepositoryError?.message || error?.message || 'Fout bij aanmaken order';
             UI.showToast(errorMsg, 'error', 5000);
-            
-            // Alleen naar login scherm gaan bij auth error
+
             if (error?.message?.includes('auth') || error?.message?.includes('unauthorized')) {
-                console.log('Auth error detected, showing login screen');
                 this.showLoginScreen();
             }
         } finally {
-            // Restore button state
             if (submitBtn) {
                 submitBtn.disabled = false;
                 submitBtn.textContent = originalText;
             }
-            console.log('=== handleNewOrder END ===');
         }
     },
 
@@ -459,7 +435,9 @@ const App = {
             'nazorg': 'Nazorg',
             'todos': 'Taken',
             'time': 'Tijdregistratie',
-            'settings': 'Instellingen'
+            'settings': 'Instellingen',
+            'schema': 'Productie Schema',
+            'analytics': 'Analytics'
         };
         document.getElementById('pageTitle').textContent = titles[page] || 'Babycrafts';
         
@@ -509,6 +487,9 @@ const App = {
                 break;
             case 'schema':
                 this.renderSchemaPage(content);
+                break;
+            case 'analytics':
+                this.renderAnalyticsPage(content);
                 break;
             default:
                 this.renderDashboard(content);
@@ -634,30 +615,56 @@ const App = {
         const faseConfig = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
         const deadlineStatus = Utils.getDeadlineStatus(order);
 
+        // Calculate workflow progress
+        const workflow = getWorkflowForCollectie(order.collectie);
+        const workflowFases = WORKFLOWS[workflow]?.fases || [0];
+        const currentIndex = workflowFases.indexOf(order.huidige_fase);
+        const totalFases = workflowFases.length;
+        const progressPct = totalFases > 1 ? Math.round((currentIndex / (totalFases - 1)) * 100) : 0;
+
+        // Progress bar color
+        let progressColor = 'bg-blue-500';
+        if (progressPct >= 80) progressColor = 'bg-green-500';
+        else if (deadlineStatus?.class?.includes('red')) progressColor = 'bg-red-500';
+        else if (deadlineStatus?.class?.includes('orange')) progressColor = 'bg-orange-500';
+
         return `
-            <div class="order-card">
-                <div class="order-card-header" onclick="App.showOrderDetail('${order.order_id}')">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-lg ${faseConfig.color} bg-opacity-20 flex items-center justify-center">
-                            <span class="text-sm font-bold ${faseConfig.text}">${order.huidige_fase}</span>
+            <div class="order-card" onclick="App.showOrderDetail('${order.order_id}')">
+                <div class="order-card-header">
+                    <div class="flex items-center gap-3 min-w-0 flex-1">
+                        <div class="w-10 h-10 rounded-xl ${faseConfig.color} flex items-center justify-center flex-shrink-0">
+                            <span class="text-sm font-bold text-white">${order.huidige_fase}</span>
                         </div>
-                        <div class="min-w-0">
-                            <p class="font-semibold text-gray-900 truncate cursor-pointer hover:text-amber-600" 
-                               onclick="event.stopPropagation(); App.showCustomerPassport('${order.order_id}')"
-                               title="Klik voor klant paspoort">
-                                ${Utils.escapeHtml(order.klant_naam)}
-                            </p>
-                            <p class="text-sm text-gray-500">${Utils.escapeHtml(order.order_id)} • ${Utils.escapeHtml(order.collectie)}</p>
+                        <div class="min-w-0 flex-1">
+                            <p class="font-semibold text-gray-900 truncate">${Utils.escapeHtml(order.klant_naam)}</p>
+                            <p class="text-xs text-gray-500">${Utils.escapeHtml(order.order_id)} · ${Utils.escapeHtml(order.collectie)}</p>
                         </div>
                     </div>
-                    <span class="fase-badge ${faseConfig.color.replace('bg-', 'bg-').replace('500', '100')} ${faseConfig.text}">
+                    <span class="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0 ml-2">
                         ${I18n.getFaseName(order.huidige_fase)}
                     </span>
                 </div>
+
+                <!-- Progress bar -->
+                <div class="mt-3">
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-xs text-gray-400">Voortgang</span>
+                        <span class="text-xs font-medium text-gray-600">${currentIndex + 1}/${totalFases} fases</span>
+                    </div>
+                    <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div class="h-full ${progressColor} rounded-full transition-all" style="width: ${progressPct}%"></div>
+                    </div>
+                </div>
+
                 ${deadlineStatus ? `
-                    <div class="mt-3 flex items-center gap-2 text-xs ${deadlineStatus.class}" onclick="App.showOrderDetail('${order.order_id}')">
-                        <i data-lucide="clock" class="w-4 h-4"></i>
-                        <span>${deadlineStatus.text} • ${Utils.formatDate(order.deadline)}</span>
+                    <div class="mt-2 flex items-center gap-1.5 text-xs ${deadlineStatus.class}">
+                        <i data-lucide="clock" class="w-3.5 h-3.5"></i>
+                        <span>${deadlineStatus.text} · ${Utils.formatDate(order.deadline)}</span>
+                    </div>
+                ` : order.deadline ? `
+                    <div class="mt-2 flex items-center gap-1.5 text-xs text-gray-400">
+                        <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
+                        <span>Deadline: ${Utils.formatDate(order.deadline)}</span>
                     </div>
                 ` : ''}
             </div>
@@ -1222,73 +1229,129 @@ const App = {
         const faseConfig = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
         const canAdvance = OrdersModule.canAdvance(order);
         const advanceText = OrdersModule.getAdvanceButtonText(order);
+        const deadlineStatus = Utils.getDeadlineStatus(order);
+
+        // Compact inline workflow progress
+        const workflow = getWorkflowForCollectie(order.collectie);
+        const workflowFases = WORKFLOWS[workflow]?.fases || [0];
+        const currentIndex = workflowFases.indexOf(order.huidige_fase);
+
+        const timelineHtml = workflowFases.map((faseNum, idx) => {
+            const fc = FASES_CONFIG[faseNum];
+            const done = idx < currentIndex;
+            const current = idx === currentIndex;
+            return `
+                <div class="flex flex-col items-center" style="min-width:0;flex:1">
+                    <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
+                        ${done ? 'bg-green-500 text-white' : current ? fc.color + ' text-white ring-2 ring-offset-1 ring-amber-400' : 'bg-gray-100 text-gray-400'}">
+                        ${done ? '✓' : faseNum}
+                    </div>
+                    ${idx < workflowFases.length - 1 ? '<div class="h-0.5 w-full bg-gray-200 mt-3" style="flex:1"></div>' : ''}
+                </div>
+            `;
+        }).join('');
 
         UI.showBottomSheet({
-            title: orderId,
+            title: `Order ${orderId}`,
             content: `
                 <div class="space-y-4">
-                    <!-- Klant Info -->
-                    <div class="bg-gray-50 rounded-xl p-4">
-                        <h4 class="font-semibold mb-2">Klant</h4>
-                        <p class="text-lg">${Utils.escapeHtml(order.klant_naam)}</p>
-                        <p class="text-gray-500">${Utils.escapeHtml(order.klant_email)}</p>
-                        ${order.klant_telefoon ? `<p class="text-gray-500">${Utils.escapeHtml(order.klant_telefoon)}</p>` : ''}
-                    </div>
-
-                    <!-- Order Details -->
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="bg-gray-50 rounded-xl p-3">
-                            <p class="text-xs text-gray-500">Collectie</p>
-                            <p class="font-medium">${Utils.escapeHtml(order.collectie)}</p>
+                    <!-- Klant -->
+                    <div class="flex items-center gap-3 p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-100">
+                        <div class="w-12 h-12 rounded-full bg-amber-500 text-white flex items-center justify-center text-lg font-bold flex-shrink-0">
+                            ${order.klant_naam.charAt(0).toUpperCase()}
                         </div>
-                        <div class="bg-gray-50 rounded-xl p-3">
-                            <p class="text-xs text-gray-500">Hoogte</p>
-                            <p class="font-medium">${order.hoogte_cm}cm</p>
+                        <div class="min-w-0">
+                            <p class="font-bold text-gray-900">${Utils.escapeHtml(order.klant_naam)}</p>
+                            <p class="text-sm text-gray-500 truncate">${Utils.escapeHtml(order.klant_email)}</p>
+                            ${order.klant_telefoon ? `<p class="text-sm text-gray-500">${Utils.escapeHtml(order.klant_telefoon)}</p>` : ''}
                         </div>
-                        <div class="bg-gray-50 rounded-xl p-3">
-                            <p class="text-xs text-gray-500">Sokkel</p>
-                            <p class="font-medium">${order.sokkel || 'Zonder'}</p>
-                        </div>
-                        <div class="bg-gray-50 rounded-xl p-3">
-                            <p class="text-xs text-gray-500">Deadline</p>
-                            <p class="font-medium">${Utils.formatDate(order.deadline)}</p>
-                        </div>
-                    </div>
-
-                    <!-- Huidige Fase -->
-                    <div class="bg-${faseConfig.color.replace('bg-', '')} bg-opacity-10 rounded-xl p-4">
-                        <p class="text-sm text-gray-500">Huidige fase</p>
-                        <p class="font-semibold ${faseConfig.text}">${I18n.getFaseName(order.huidige_fase)}</p>
-                    </div>
-
-                    <!-- Action Buttons -->
-                    <div class="space-y-2">
-                        <button onclick="App.showProductionSchema('${orderId}')" 
-                                class="w-full py-3 bg-blue-500 text-white rounded-xl font-medium">
-                            📋 Productieschema Bekijken
+                        <button onclick="App.showCustomerPassport('${orderId}')" class="ml-auto p-2 bg-white rounded-xl border border-gray-200 flex-shrink-0">
+                            <i data-lucide="user" class="w-4 h-4 text-gray-500"></i>
                         </button>
-                        
-                        <button onclick="App.advanceOrder('${orderId}')" 
-                                class="w-full py-3 ${canAdvance.can ? 'bg-green-500' : 'bg-gray-300'} text-white rounded-xl font-medium"
+                    </div>
+
+                    <!-- Details grid -->
+                    <div class="grid grid-cols-2 gap-2">
+                        <div class="bg-gray-50 rounded-xl p-3">
+                            <p class="text-xs text-gray-400 mb-0.5">Collectie</p>
+                            <p class="font-semibold text-sm">${Utils.escapeHtml(order.collectie)}</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-xl p-3">
+                            <p class="text-xs text-gray-400 mb-0.5">Hoogte</p>
+                            <p class="font-semibold text-sm">${order.hoogte_cm} cm</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-xl p-3">
+                            <p class="text-xs text-gray-400 mb-0.5">Sokkel</p>
+                            <p class="font-semibold text-sm">${order.sokkel || 'Zonder'}</p>
+                        </div>
+                        <div class="bg-gray-50 rounded-xl p-3 ${deadlineStatus?.class || ''}">
+                            <p class="text-xs text-gray-400 mb-0.5">Deadline</p>
+                            <p class="font-semibold text-sm">${Utils.formatDate(order.deadline)}</p>
+                            ${deadlineStatus ? `<p class="text-xs">${deadlineStatus.text}</p>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Huidige fase -->
+                    <div class="p-3 rounded-xl border-l-4 ${faseConfig.color.replace('bg-', 'border-')} bg-gray-50">
+                        <p class="text-xs text-gray-500 mb-0.5">Huidige fase · ${currentIndex + 1} van ${workflowFases.length}</p>
+                        <p class="font-bold ${faseConfig.text}">${I18n.getFaseName(order.huidige_fase)}</p>
+                    </div>
+
+                    <!-- Workflow progress (compact) -->
+                    <div class="overflow-x-auto pb-1">
+                        <div class="flex items-center gap-1 min-w-max">
+                            ${workflowFases.map((faseNum, idx) => {
+                                const fc = FASES_CONFIG[faseNum];
+                                const done = idx < currentIndex;
+                                const current = idx === currentIndex;
+                                return `
+                                    <div class="flex items-center">
+                                        <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
+                                            ${done ? 'bg-green-500 text-white' : current ? fc.color + ' text-white ring-2 ring-amber-400 ring-offset-1' : 'bg-gray-100 text-gray-400'}"
+                                            title="${fc.name}">
+                                            ${done ? '✓' : faseNum}
+                                        </div>
+                                        ${idx < workflowFases.length - 1 ? '<div class="w-3 h-0.5 bg-gray-200 mx-0.5"></div>' : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+
+                    ${order.extra_notities ? `
+                        <div class="p-3 bg-yellow-50 rounded-xl border border-yellow-100">
+                            <p class="text-xs font-medium text-yellow-700 mb-1">Notities</p>
+                            <p class="text-sm text-gray-700">${Utils.escapeHtml(order.extra_notities)}</p>
+                        </div>
+                    ` : ''}
+
+                    <!-- Actions -->
+                    <div class="space-y-2">
+                        <button onclick="App.advanceOrder('${orderId}')"
+                                class="w-full py-3.5 ${canAdvance.can ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-200 cursor-not-allowed'} text-white rounded-xl font-semibold transition-colors"
                                 ${!canAdvance.can ? 'disabled' : ''}>
                             ${advanceText}
                         </button>
-                        
+
                         ${order.huidige_fase === 9 ? `
-                            <button onclick="App.showPostNL('${orderId}')" 
+                            <button onclick="App.showPostNL('${orderId}')"
                                     class="w-full py-3 bg-[#003366] text-white rounded-xl font-medium">
-                                📦 PostNL
+                                📦 PostNL Pakket
                             </button>
                         ` : ''}
 
-                        <div class="grid grid-cols-2 gap-2">
-                            <button onclick="App.editOrder('${orderId}')" 
-                                    class="py-3 bg-amber-100 text-amber-700 rounded-xl font-medium">
+                        <div class="grid grid-cols-3 gap-2">
+                            <button onclick="App.showProductionSchema('${orderId}')"
+                                    class="py-2.5 bg-blue-50 text-blue-600 rounded-xl text-sm font-medium">
+                                📋 Schema
+                            </button>
+                            <button onclick="App.editOrder('${orderId}')"
+                                    class="py-2.5 bg-amber-50 text-amber-700 rounded-xl text-sm font-medium">
                                 ✏️ Bewerken
                             </button>
-                            <button onclick="App.deleteOrder('${orderId}')" 
-                                    class="py-3 bg-red-100 text-red-600 rounded-xl">
-                                🗑️ Verwijderen
+                            <button onclick="App.deleteOrder('${orderId}')"
+                                    class="py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium">
+                                🗑️ Wissen
                             </button>
                         </div>
                     </div>
@@ -1399,43 +1462,32 @@ const App = {
             document.getElementById('newOrderForm')?.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 
-                // BELANGRIJK: Zorg dat sessie altijd beschikbaar is
+                // Restore session from localStorage if needed
                 if (!this.currentUser) {
-                    console.log('Sessie niet in memory, probeer uit localStorage te laden...');
                     const savedSession = localStorage.getItem('babycrafts_session');
                     if (savedSession) {
                         try {
                             this.currentUser = JSON.parse(savedSession);
-                            console.log('Sessie hersteld uit localStorage:', this.currentUser);
                         } catch (e) {
-                            console.error('Kon sessie niet parsen:', e);
+                            // ignore parse error
                         }
                     }
                 }
-                
-                console.log('=== SUBMIT HANDLER START ===');
-                console.log('this.currentUser:', this.currentUser);
-                console.log('this.currentUser?.id:', this.currentUser?.id);
-                
+
                 if (!this.currentUser?.id) {
-                    console.error('❌ Geen gebruiker ingelogd bij submit!');
-                    UI.showToast('❌ Je bent niet ingelogd. Log opnieuw in.', 'error', 5000);
+                    UI.showToast('Je bent niet ingelogd. Log opnieuw in.', 'error', 5000);
                     this.showLoginScreen();
                     return;
                 }
-                
+
                 const formData = Object.fromEntries(new FormData(e.target));
-                
+
                 // Add calculated deadline if scan date is set
                 const scanDatumInput = document.getElementById('scanDatumInput');
                 if (scanDatumInput?.dataset.deadline) {
                     formData.deadline = scanDatumInput.dataset.deadline;
                 }
-                
-                // Debug logging
-                console.log('Form data:', formData);
-                console.log('User ID:', this.currentUser?.id);
-                
+
                 // Show loading state
                 const submitBtn = e.target.querySelector('button[type="submit"]');
                 const originalText = submitBtn?.textContent || 'Opslaan';
@@ -1443,34 +1495,21 @@ const App = {
                     submitBtn.disabled = true;
                     submitBtn.textContent = 'Bezig met opslaan...';
                 }
-                
+
                 try {
-                    console.log('Roep OrdersModule.create aan...');
                     const order = await OrdersModule.create(formData, this.currentUser?.id);
-                    console.log('Order resultaat:', order);
-                    
+
                     if (order) {
-                        UI.showToast('✅ Order succesvol aangemaakt!', 'success');
+                        UI.showToast('Order succesvol aangemaakt!', 'success');
                         UI.closeBottomSheet();
-                        console.log('currentUser na create:', this.currentUser);
-                        console.log('Herlaad orders...');
                         await OrdersModule.load();
-                        console.log('currentUser na load:', this.currentUser);
-                        console.log('Render pagina...');
                         this.renderCurrentPage();
-                        console.log('=== KLAAR ===');
                     } else {
-                        console.error('Order is null/undefined');
-                        UI.showToast('❌ Order kon niet worden aangemaakt', 'error', 5000);
+                        UI.showToast('Order kon niet worden aangemaakt', 'error', 5000);
                     }
                 } catch (error) {
-                    console.error('=== FOUT ===');
-                    console.error('Error:', error);
-                    console.error('Error message:', error?.message);
-                    console.error('currentUser bij error:', this.currentUser);
-                    
                     const errorMsg = window.lastRepositoryError?.message || error?.message || 'Onbekende fout';
-                    UI.showToast('❌ ' + errorMsg, 'error', 5000);
+                    UI.showToast(errorMsg, 'error', 5000);
                 } finally {
                     if (submitBtn) {
                         submitBtn.disabled = false;
@@ -1496,7 +1535,7 @@ const App = {
             await OrdersModule.updateFase(orderId, nextFase, this.currentUser?.id);
             
             // Show communication modal for certain fases
-            if (nextFase === 0) {
+            if (nextFase === 1) {
                 CommunicationsModule.showChoiceModal(order, 'welcome');
             } else if (nextFase === 10) {
                 CommunicationsModule.showChoiceModal(order, 'shipping');
@@ -1800,7 +1839,6 @@ const App = {
                     UI.showToast('Order bijgewerkt', 'success');
                     this.renderCurrentPage();
                 } catch (error) {
-                    console.error('Update error:', error);
                     const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij bijwerken order';
                     UI.showToast(errorMsg, 'error', 5000);
                 }
@@ -1899,10 +1937,9 @@ const App = {
     // Register service worker for notifications
     async registerServiceWorker() {
         try {
-            const registration = await navigator.serviceWorker.register('/sw.js');
-            console.log('Service Worker registered:', registration);
+            await navigator.serviceWorker.register('/sw.js');
         } catch (error) {
-            console.log('Service Worker registration failed:', error);
+            // Service worker not available in this environment
         }
     },
     
@@ -1991,7 +2028,7 @@ const App = {
             return new Date(o.deadline) < today;
         }) || [];
         
-        const openTodos = TodosModule.todos?.filter(t => !t.completed) || [];
+        const openTodos = TodosModule.todos?.filter(t => t.status !== 'done') || [];
         
         // Build notification message
         let body = '';
@@ -2046,6 +2083,190 @@ const App = {
         menuOverlay.classList.toggle('visible');
     },
     
+    // Show AI Assistant
+    showAIAssistant() {
+        const stats = OrdersModule.getDashboardStats();
+        const openTodos = TodosModule.todos?.filter(t => t.status !== 'done') || [];
+        const delayed = OrdersModule.orders?.filter(o => {
+            if (!o.deadline || o.huidige_fase >= 12 || o.status === 'deleted') return false;
+            return new Date(o.deadline) < new Date();
+        }) || [];
+
+        UI.showBottomSheet({
+            title: '🤖 Atelier Assistent',
+            content: `
+                <div class="space-y-4">
+                    <div class="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                        <p class="font-semibold text-purple-800 mb-1">Overzicht vandaag</p>
+                        <ul class="text-sm text-purple-700 space-y-1">
+                            <li>• ${stats.active} actieve orders in productie</li>
+                            ${delayed.length > 0 ? `<li class="text-red-600 font-medium">• ⚠️ ${delayed.length} order(s) hebben deadline overschreden</li>` : '<li>• Geen vertraagde orders</li>'}
+                            <li>• ${openTodos.length} openstaande taken</li>
+                            <li>• ${stats.completed} orders afgerond totaal</li>
+                        </ul>
+                    </div>
+
+                    ${delayed.length > 0 ? `
+                        <div class="p-4 bg-red-50 rounded-xl border border-red-100">
+                            <p class="font-semibold text-red-700 mb-2">Vertraagde orders</p>
+                            ${delayed.slice(0, 3).map(o => `
+                                <div class="flex items-center justify-between py-2 border-b border-red-100 last:border-0">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-800">${Utils.escapeHtml(o.klant_naam)}</p>
+                                        <p class="text-xs text-gray-500">${o.order_id}</p>
+                                    </div>
+                                    <span class="text-xs text-red-600">${Utils.formatDate(o.deadline)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    <div class="p-4 bg-gray-50 rounded-xl">
+                        <p class="font-semibold text-gray-700 mb-2">Snelle acties</p>
+                        <div class="grid grid-cols-2 gap-2">
+                            <button onclick="UI.closeBottomSheet(); App.navigate('orders')"
+                                    class="py-2.5 bg-blue-500 text-white rounded-xl text-sm font-medium">
+                                Alle Orders
+                            </button>
+                            <button onclick="UI.closeBottomSheet(); App.navigate('todos')"
+                                    class="py-2.5 bg-amber-500 text-white rounded-xl text-sm font-medium">
+                                Taken
+                            </button>
+                            <button onclick="UI.closeBottomSheet(); App.showDelayedOrders()"
+                                    class="py-2.5 bg-red-500 text-white rounded-xl text-sm font-medium">
+                                Vertraagd
+                            </button>
+                            <button onclick="UI.closeBottomSheet(); App.navigate('schema')"
+                                    class="py-2.5 bg-green-500 text-white rounded-xl text-sm font-medium">
+                                Schema
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `
+        });
+    },
+
+    // Render analytics page
+    renderAnalyticsPage(container) {
+        const titles = { 'analytics': 'Analytics' };
+        document.getElementById('pageTitle').textContent = 'Analytics';
+
+        const allOrders = OrdersModule.orders.filter(o => o.status !== 'deleted');
+        const completed = allOrders.filter(o => o.huidige_fase === 12);
+        const active = allOrders.filter(o => o.huidige_fase < 12);
+
+        // Orders per collectie
+        const perCollectie = {};
+        allOrders.forEach(o => {
+            perCollectie[o.collectie] = (perCollectie[o.collectie] || 0) + 1;
+        });
+        const sortedCollecties = Object.entries(perCollectie).sort((a, b) => b[1] - a[1]);
+
+        // Orders per fase
+        const perFase = {};
+        active.forEach(o => {
+            const name = I18n.getFaseName(o.huidige_fase);
+            perFase[name] = (perFase[name] || 0) + 1;
+        });
+        const sortedFases = Object.entries(perFase).sort((a, b) => b[1] - a[1]);
+
+        // Monthly completed orders (last 6 months)
+        const monthlyData = {};
+        const now = new Date();
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const key = d.toLocaleString('nl', { month: 'short', year: '2-digit' });
+            monthlyData[key] = 0;
+        }
+        completed.forEach(o => {
+            const d = new Date(o.updated_at || o.created_at);
+            const key = d.toLocaleString('nl', { month: 'short', year: '2-digit' });
+            if (monthlyData[key] !== undefined) monthlyData[key]++;
+        });
+
+        const maxMonthly = Math.max(...Object.values(monthlyData), 1);
+
+        container.innerHTML = `
+            <div class="page-header">
+                <h1 class="page-title">Analytics</h1>
+                <p class="page-subtitle">Productie statistieken</p>
+            </div>
+
+            <!-- Summary stats -->
+            <div class="stats-grid mb-4">
+                <div class="stat-card stat-card-blue">
+                    <span class="stat-label">Totaal orders</span>
+                    <div class="stat-value">${allOrders.length}</div>
+                </div>
+                <div class="stat-card stat-card-green">
+                    <span class="stat-label">Afgerond</span>
+                    <div class="stat-value">${completed.length}</div>
+                </div>
+                <div class="stat-card stat-card-orange">
+                    <span class="stat-label">Actief</span>
+                    <div class="stat-value">${active.length}</div>
+                </div>
+                <div class="stat-card stat-card-red">
+                    <span class="stat-label">% Afgerond</span>
+                    <div class="stat-value">${allOrders.length ? Math.round(completed.length / allOrders.length * 100) : 0}%</div>
+                </div>
+            </div>
+
+            <!-- Monthly chart -->
+            <div class="content-card mb-4">
+                <h3 class="card-title mb-4">Afgerond per maand</h3>
+                <div class="flex items-end gap-2 h-32">
+                    ${Object.entries(monthlyData).map(([month, count]) => `
+                        <div class="flex-1 flex flex-col items-center gap-1">
+                            <span class="text-xs font-medium text-gray-700">${count}</span>
+                            <div class="w-full bg-amber-500 rounded-t-lg transition-all"
+                                 style="height: ${Math.max(4, Math.round(count / maxMonthly * 96))}px"></div>
+                            <span class="text-xs text-gray-400 whitespace-nowrap">${month}</span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- Per collectie -->
+            <div class="content-card mb-4">
+                <h3 class="card-title mb-4">Orders per collectie</h3>
+                <div class="space-y-3">
+                    ${sortedCollecties.map(([name, count]) => `
+                        <div>
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-sm font-medium text-gray-700">${Utils.escapeHtml(name)}</span>
+                                <span class="text-sm font-bold text-gray-900">${count}</span>
+                            </div>
+                            <div class="h-2 bg-gray-100 rounded-full">
+                                <div class="h-full bg-amber-500 rounded-full" style="width: ${Math.round(count / allOrders.length * 100)}%"></div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+
+            <!-- Actieve orders per fase -->
+            ${sortedFases.length > 0 ? `
+                <div class="content-card">
+                    <h3 class="card-title mb-4">Actief per fase</h3>
+                    <div class="space-y-2">
+                        ${sortedFases.map(([fase, count]) => `
+                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                                <span class="text-sm text-gray-700">${fase}</span>
+                                <span class="text-sm font-bold text-gray-900 bg-white px-2 py-0.5 rounded-lg border">${count}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
+        `;
+
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons({ nodes: [container] });
+        }
+    },
+
     // Close detail sheet
     closeDetail() {
         const sheet = document.getElementById('detailSheet');

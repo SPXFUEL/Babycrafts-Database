@@ -77,7 +77,7 @@ const TimeModule = {
         const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         
-        const myEntries = this.entries.filter(e => e.user_id === userId &> e.status === 'approved');
+        const myEntries = this.entries.filter(e => e.user_id === userId && e.status === 'approved');
         
         return {
             today: myEntries
@@ -106,7 +106,7 @@ const TimeModule = {
         this.entries.forEach(entry => {
             const userId = entry.user_id;
             const entryDate = new Date(entry.datum);
-            const isCurrentMonth = entryDate.getMonth() === currentMonth &>
+            const isCurrentMonth = entryDate.getMonth() === currentMonth &&
                                   entryDate.getFullYear() === currentYear;
             
             if (!stats[userId]) {
