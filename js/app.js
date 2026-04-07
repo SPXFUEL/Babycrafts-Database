@@ -1,1491 +1,417 @@
 /**
- * MAIN APP - Babycrafts Atelier Pro V2
- * Complete application initialization and routing
+ * APP - Babycrafts Atelier Pro
+ * Complete rewrite — clean, simple, working.
  */
 
 const App = {
     currentUser: null,
     currentPage: 'dashboard',
     supabase: null,
-    isOnline: true,
-    keyboardListenerAdded: false,
     currentPin: '',
+    keypadReady: false,
 
-    // PIN codes configuratie
     PIN_CODES: {
-        '2911': { name: 'Eigenaar', role: 'admin', email: 'admin@babycrafts.local' },
-        '0805': { name: 'Medewerker', role: 'staff', email: 'staff@babycrafts.local' }
+        '2911': { name: 'Eigenaar',   role: 'admin' },
+        '0805': { name: 'Medewerker', role: 'staff' },
     },
 
-    // Initialize application
+    // ─── BOOT ────────────────────────────────────────────────────────────────
+
     async initialize() {
-        // Check online status
-        this.updateOnlineStatus();
-        window.addEventListener('online', () => this.updateOnlineStatus(true));
-        window.addEventListener('offline', () => this.updateOnlineStatus(false));
+        // Online status
+        window.addEventListener('online',  () => this._setOnline(true));
+        window.addEventListener('offline', () => this._setOnline(false));
+        this._setOnline(navigator.onLine);
 
-        // Initialize Supabase
-        await this.initializeSupabase();
-
-        // Initialize modules
+        // Supabase
+        const { createClient } = supabase;
+        this.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
         Repository.initialize(this.supabase);
-        Audit.initialize();
 
-        // Initialize data modules — errors are caught so checkAuth() always runs
-        if (OrdersModule) {
-            try { await OrdersModule.initialize(); } catch (_) {}
-        }
-        if (TodosModule) {
-            try { await TodosModule.initialize(); } catch (_) {}
-        }
+        // Audit
+        if (typeof Audit !== 'undefined') Audit.initialize();
 
-        // Check authentication (always reached)
-        await this.checkAuth();
-
-        // Setup event listeners
-        this.setupEventListeners();
-
-        // Setup PostNL event
-        window.addEventListener('postnl-manual-complete', async (e) => {
-            const { orderId, trackTrace } = e.detail;
+        // Check saved session first — show the right screen immediately
+        const saved = localStorage.getItem('babycrafts_session');
+        if (saved) {
             try {
-                await Repository.orders.update(orderId, {
-                    track_trace_code: trackTrace,
-                    verzenddatum: new Date().toISOString().split('T')[0]
-                }, this.currentUser?.id);
-                UI.showToast('Track & Trace opgeslagen', 'success');
-                this.renderCurrentPage();
-            } catch (error) {
-                UI.showToast('Fout bij opslaan', 'error');
-            }
-        });
-
-        // Initialize push notifications
-        this.initPushNotifications();
-    },
-
-    // Initialize Supabase
-    async initializeSupabase() {
-        try {
-            const { createClient } = supabase;
-            this.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
-            
-            // Test connection
-            const { error } = await this.supabase.from('orders').select('count', { count: 'exact', head: true });
-            if (error) throw error;
-            
-        } catch (error) {
-            console.error('Supabase init error:', error);
-            UI.showToast('Database verbinding mislukt', 'error');
-        }
-    },
-
-    // Update online status
-    updateOnlineStatus(online) {
-        this.isOnline = online !== undefined ? online : navigator.onLine;
-        if (this.isOnline) {
-            UI.hideOfflineIndicator();
-        } else {
-            UI.showOfflineIndicator();
-        }
-    },
-
-    // Check authentication
-    async checkAuth() {
-        // Check for stored session
-        const savedSession = localStorage.getItem('babycrafts_session');
-        if (savedSession) {
-            try {
-                this.currentUser = JSON.parse(savedSession);
-                this.showMainApp();
-                await this.loadInitialData();
+                this.currentUser = JSON.parse(saved);
+                this._showMain();
+                await this._loadData();
                 return;
-            } catch (e) {
+            } catch (_) {
                 localStorage.removeItem('babycrafts_session');
             }
         }
-        
-        this.showLoginScreen();
+        this._showLogin();
     },
 
-    // Show login screen
-    showLoginScreen() {
+    _setOnline(online) {
+        const el = document.getElementById('offlineIndicator');
+        if (!el) return;
+        el.classList.toggle('show', !online);
+    },
+
+    // ─── DATA ────────────────────────────────────────────────────────────────
+
+    async _loadData() {
+        const results = await Promise.allSettled([
+            OrdersModule.initialize(),
+            TodosModule.initialize(),
+            typeof TimeModule !== 'undefined' ? TimeModule.initialize() : Promise.resolve(),
+        ]);
+        // Log any failures silently — don't crash the app
+        results.forEach((r, i) => {
+            if (r.status === 'rejected') {
+                const names = ['Orders', 'Todos', 'Time'];
+                console.warn(`${names[i]} module failed to load:`, r.reason?.message);
+            }
+        });
+        this.renderCurrentPage();
+    },
+
+    // ─── AUTH ────────────────────────────────────────────────────────────────
+
+    _showLogin() {
         document.getElementById('loginScreen').classList.remove('hidden');
         document.getElementById('mainApp').classList.add('hidden');
-        
-        // Reset PIN
         this.currentPin = '';
-        this.updatePinDisplay();
-        this.hidePinError();
-        
-        // Setup PIN keypad
-        this.setupPinKeypadDirect();
-    },
-    
-    // Setup PIN keypad
-    setupPinKeypadDirect() {
-        // Direct binding to each key button
-        document.querySelectorAll('.pin-key').forEach(key => {
-            // Remove any existing listeners by cloning
-            const newKey = key.cloneNode(true);
-            key.parentNode.replaceChild(newKey, key);
-            
-            // Add click handler
-            newKey.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const digit = newKey.dataset.key;
-                if (digit) {
-                    this.handlePinDigit(digit);
-                }
-            });
-
-            // Add touch handler for mobile
-            newKey.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                const digit = newKey.dataset.key;
-                if (digit) {
-                    this.handlePinDigit(digit);
-                }
-            }, { passive: false });
-        });
-        
-        // Bind backspace button
-        const backspaceBtn = document.getElementById('pinBackspace');
-        if (backspaceBtn) {
-            const newBackspace = backspaceBtn.cloneNode(true);
-            backspaceBtn.parentNode.replaceChild(newBackspace, backspaceBtn);
-            
-            newBackspace.addEventListener('click', (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                this.handlePinBackspace();
-            });
-            
-            newBackspace.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                this.handlePinBackspace();
-            }, { passive: false });
-        }
-        
-        // Keyboard support (only once)
-        if (!this.keyboardListenerAdded) {
-            document.addEventListener('keydown', (e) => {
-                if (!document.getElementById('loginScreen').classList.contains('hidden')) {
-                    if (e.key >= '0' && e.key <= '9') {
-                        e.preventDefault();
-                        this.handlePinDigit(e.key);
-                    } else if (e.key === 'Backspace') {
-                        e.preventDefault();
-                        this.handlePinBackspace();
-                    }
-                }
-            });
-            this.keyboardListenerAdded = true;
-        }
-        
-        // Re-initialize icons
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons();
-        }
+        this._updatePinDots();
+        this._hidePinError();
+        this._setupKeypad();
     },
 
-    // Handle PIN digit
-    handlePinDigit(digit) {
-        if (this.currentPin.length < 4) {
-            this.currentPin += digit;
-            this.updatePinDisplay();
-
-            // Check if complete
-            if (this.currentPin.length === 4) {
-                setTimeout(() => this.verifyPin(), 200);
-            }
-        }
-    },
-
-    // Handle PIN backspace
-    handlePinBackspace() {
-        this.currentPin = this.currentPin.slice(0, -1);
-        this.updatePinDisplay();
-        this.hidePinError();
-    },
-    
-    // Update PIN display
-    updatePinDisplay() {
-        const dots = document.querySelectorAll('.pin-dot');
-        dots.forEach((dot, index) => {
-            if (index < this.currentPin.length) {
-                dot.textContent = '•';
-                dot.classList.add('filled');
-            } else {
-                dot.textContent = '';
-                dot.classList.remove('filled');
-            }
-        });
-    },
-    
-    // Show PIN error
-    showPinError() {
-        const error = document.getElementById('pinError');
-        if (error) {
-            error.classList.remove('hidden');
-        }
-        
-        // Shake animation
-        const dots = document.querySelectorAll('.pin-dot');
-        dots.forEach(dot => {
-            dot.style.borderColor = '#ef4444';
-            dot.animate([
-                { transform: 'translateX(0)' },
-                { transform: 'translateX(-5px)' },
-                { transform: 'translateX(5px)' },
-                { transform: 'translateX(0)' }
-            ], { duration: 300 });
-        });
-        
-        setTimeout(() => {
-            dots.forEach(dot => {
-                dot.style.borderColor = '';
-            });
-        }, 1000);
-    },
-    
-    // Hide PIN error
-    hidePinError() {
-        const error = document.getElementById('pinError');
-        if (error) {
-            error.classList.add('hidden');
-        }
-    },
-    
-    // Verify PIN
-    async verifyPin() {
-        const userData = this.PIN_CODES[this.currentPin];
-        
-        if (userData) {
-            // Success
-            this.currentUser = {
-                id: `local_${userData.role}_${this.currentPin}`,
-                email: userData.email,
-                user_metadata: {
-                    name: userData.name,
-                    role: userData.role
-                }
-            };
-            
-            // Save session
-            localStorage.setItem('babycrafts_session', JSON.stringify(this.currentUser));
-            
-            // Show success
-            const dots = document.querySelectorAll('.pin-dot');
-            dots.forEach(dot => {
-                dot.style.borderColor = '#10b981';
-                dot.style.background = '#10b981';
-                dot.style.color = 'white';
-            });
-            
-            setTimeout(() => {
-                this.showMainApp();
-                this.loadInitialData();
-                UI.showToast(`Welkom ${userData.name}`, 'success');
-            }, 300);
-            
-        } else {
-            // Wrong PIN
-            this.showPinError();
-            this.currentPin = '';
-            setTimeout(() => this.updatePinDisplay(), 500);
-        }
-    },
-
-    // Show main app
-    showMainApp() {
+    _showMain() {
         document.getElementById('loginScreen').classList.add('hidden');
         document.getElementById('mainApp').classList.remove('hidden');
+        // Update menu user info
+        const name = this.currentUser?.user_metadata?.name || 'Gebruiker';
+        const role = this.currentUser?.user_metadata?.role === 'admin' ? 'Eigenaar' : 'Medewerker';
+        const el = document.getElementById('menuUserName');
+        const re = document.getElementById('menuUserRole');
+        if (el) el.textContent = name;
+        if (re) re.textContent = role;
+        this._setupGlobalListeners();
+        this.renderCurrentPage();
+    },
 
-        // Update side menu user info
-        const userName = this.currentUser?.user_metadata?.name || 'Gebruiker';
-        const userRole = this.currentUser?.user_metadata?.role === 'admin' ? 'Eigenaar' : 'Medewerker';
-        const menuUserName = document.getElementById('menuUserName');
-        const menuUserRole = document.getElementById('menuUserRole');
-        if (menuUserName) menuUserName.textContent = userName;
-        if (menuUserRole) menuUserRole.textContent = userRole;
+    _setupKeypad() {
+        if (this.keypadReady) {
+            // Reset dots and re-show
+            this._updatePinDots();
+            return;
+        }
+
+        // Bind digit keys
+        document.querySelectorAll('.pin-key').forEach(key => {
+            const fresh = key.cloneNode(true);
+            key.parentNode.replaceChild(fresh, key);
+            const handler = (e) => {
+                e.preventDefault();
+                if (fresh.dataset.key) this._pinDigit(fresh.dataset.key);
+            };
+            fresh.addEventListener('click', handler);
+            fresh.addEventListener('touchstart', handler, { passive: false });
+        });
+
+        // Bind backspace
+        const bs = document.getElementById('pinBackspace');
+        if (bs) {
+            const fresh = bs.cloneNode(true);
+            bs.parentNode.replaceChild(fresh, bs);
+            const handler = (e) => { e.preventDefault(); this._pinBackspace(); };
+            fresh.addEventListener('click', handler);
+            fresh.addEventListener('touchstart', handler, { passive: false });
+        }
+
+        // Keyboard support
+        document.addEventListener('keydown', (e) => {
+            if (document.getElementById('loginScreen').classList.contains('hidden')) return;
+            if (e.key >= '0' && e.key <= '9') { e.preventDefault(); this._pinDigit(e.key); }
+            else if (e.key === 'Backspace') { e.preventDefault(); this._pinBackspace(); }
+        });
+
+        if (typeof lucide !== 'undefined') lucide.createIcons();
+        this.keypadReady = true;
+    },
+
+    _pinDigit(d) {
+        if (this.currentPin.length >= 4) return;
+        this.currentPin += d;
+        this._updatePinDots();
+        if (this.currentPin.length === 4) setTimeout(() => this._verifyPin(), 200);
+    },
+
+    _pinBackspace() {
+        this.currentPin = this.currentPin.slice(0, -1);
+        this._updatePinDots();
+        this._hidePinError();
+    },
+
+    _updatePinDots() {
+        document.querySelectorAll('.pin-dot').forEach((dot, i) => {
+            const filled = i < this.currentPin.length;
+            dot.textContent = filled ? '•' : '';
+            dot.classList.toggle('filled', filled);
+        });
+    },
+
+    _showPinError() {
+        const el = document.getElementById('pinError');
+        if (el) el.classList.remove('hidden');
+        document.querySelectorAll('.pin-dot').forEach(d => {
+            d.style.borderColor = '#ef4444';
+            d.animate([
+                { transform: 'translateX(0)' },
+                { transform: 'translateX(-6px)' },
+                { transform: 'translateX(6px)' },
+                { transform: 'translateX(0)' },
+            ], { duration: 300 });
+        });
+        setTimeout(() => document.querySelectorAll('.pin-dot').forEach(d => d.style.borderColor = ''), 1000);
+    },
+
+    _hidePinError() {
+        document.getElementById('pinError')?.classList.add('hidden');
+    },
+
+    async _verifyPin() {
+        const user = this.PIN_CODES[this.currentPin];
+        if (user) {
+            this.currentUser = {
+                id: `local_${user.role}_${this.currentPin}`,
+                email: `${user.role}@babycrafts.local`,
+                user_metadata: { name: user.name, role: user.role },
+            };
+            localStorage.setItem('babycrafts_session', JSON.stringify(this.currentUser));
+
+            // Green flash
+            document.querySelectorAll('.pin-dot').forEach(d => {
+                d.style.background = '#10b981';
+                d.style.borderColor = '#10b981';
+            });
+
+            setTimeout(async () => {
+                this._showMain();
+                await this._loadData();
+                UI.showToast(`Welkom ${user.name}`, 'success');
+            }, 300);
+        } else {
+            this._showPinError();
+            this.currentPin = '';
+            setTimeout(() => this._updatePinDots(), 500);
+        }
+    },
+
+    logout() {
+        localStorage.removeItem('babycrafts_session');
+        this.currentUser = null;
+        this.keypadReady = false;
+        this._showLogin();
+        UI.showToast('Uitgelogd', 'info');
+    },
+
+    // ─── GLOBAL LISTENERS ────────────────────────────────────────────────────
+
+    _listenersReady: false,
+    _setupGlobalListeners() {
+        if (this._listenersReady) return;
+        this._listenersReady = true;
+
+        // Hamburger menu
+        document.getElementById('menuBtn')?.addEventListener('click', () => this.toggleMenu());
+
+        // Menu overlay close
+        document.getElementById('menuOverlay')?.addEventListener('click', () => this.toggleMenu());
+
+        // Search
+        const search = document.getElementById('searchInput');
+        if (search) {
+            let timer;
+            search.addEventListener('input', (e) => {
+                clearTimeout(timer);
+                timer = setTimeout(() => this._handleSearch(e.target.value), 300);
+            });
+        }
+
+        // New order form wiring (static sheet in HTML)
+        const form = document.getElementById('newOrderForm');
+        if (form) {
+            // Scan date → deadline
+            const scanInput = document.getElementById('scanDatumInputHtml');
+            if (scanInput) {
+                scanInput.addEventListener('change', (e) => {
+                    if (e.target.value) {
+                        const d = new Date(e.target.value);
+                        d.setDate(d.getDate() + 42);
+                        e.target.dataset.deadline = d.toISOString().split('T')[0];
+                    }
+                });
+            }
+
+            // Submit
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await this._handleOrderSubmit(form);
+            });
+        }
+    },
+
+    // ─── NAVIGATION ──────────────────────────────────────────────────────────
+
+    navigate(page) {
+        this.currentPage = page;
+        const titles = {
+            dashboard: 'Dashboard', orders: 'Orders', archief: 'Archief',
+            nazorg: 'Nazorg', todos: 'Taken', time: 'Tijdregistratie',
+            settings: 'Instellingen', schema: 'Productie Schema', analytics: 'Analytics',
+        };
+        const el = document.getElementById('pageTitle');
+        if (el) el.textContent = titles[page] || 'Babycrafts';
+
+        document.querySelectorAll('.nav-btn').forEach(btn => {
+            btn.classList.toggle('text-primary-600', btn.dataset.page === page);
+            btn.classList.toggle('text-gray-400', btn.dataset.page !== page);
+        });
+
+        document.getElementById('searchBar')?.classList.toggle('hidden', page !== 'orders');
+
+        // Close side menu
+        document.getElementById('sideMenu')?.classList.remove('open');
+        document.getElementById('menuOverlay')?.classList.remove('visible');
 
         this.renderCurrentPage();
     },
 
-    // Load initial data
-    async loadInitialData() {
-        try {
-            const promises = [OrdersModule.initialize(), TodosModule.initialize()];
-            if (typeof TimeModule !== 'undefined') {
-                promises.push(TimeModule.initialize());
-            }
-            await Promise.all(promises);
-            this.renderCurrentPage();
-            
-            // Check for daily highlights after loading data
-            this.checkDailyHighlights();
-        } catch (error) {
-            console.error('Load data error:', error);
+    renderCurrentPage() {
+        const content = document.getElementById('mainContent');
+        if (!content) return;
+        switch (this.currentPage) {
+            case 'dashboard':  this._renderDashboard(content); break;
+            case 'orders':     this._renderOrders(content); break;
+            case 'archief':    this._renderArchief(content); break;
+            case 'nazorg':     this._renderNazorg(content); break;
+            case 'todos':      this._renderTodos(content); break;
+            case 'time':       this._renderTime(content); break;
+            case 'settings':   this._renderSettings(content); break;
+            case 'schema':     this._renderSchema(content); break;
+            case 'analytics':  this._renderAnalytics(content); break;
+            default:           this._renderDashboard(content);
         }
+        if (typeof lucide !== 'undefined') lucide.createIcons({ nodes: [content] });
     },
 
-    // Setup event listeners
-    setupEventListeners() {
-        // Menu button
-        document.getElementById('menuBtn')?.addEventListener('click', () => {
-            document.getElementById('sideMenu').classList.add('open');
-            document.getElementById('menuOverlay').classList.add('visible');
-        });
-
-        // Menu overlay
-        document.getElementById('menuOverlay')?.addEventListener('click', () => {
-            document.getElementById('sideMenu').classList.remove('open');
-            document.getElementById('menuOverlay').classList.remove('visible');
-        });
-
-        // Search with debounce
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput) {
-            const debouncedSearch = Utils.debounce((value) => {
-                this.handleSearch(value);
-            }, 300);
-            searchInput.addEventListener('input', (e) => debouncedSearch(e.target.value));
-        }
+    toggleMenu() {
+        document.getElementById('sideMenu')?.classList.toggle('open');
+        document.getElementById('menuOverlay')?.classList.toggle('visible');
     },
 
-    // Logout
-    logout() {
-        localStorage.removeItem('babycrafts_session');
-        this.currentUser = null;
-        this.showLoginScreen();
-        UI.showToast('Uitgelogd', 'info');
+    // ─── SEARCH / FILTER ─────────────────────────────────────────────────────
+
+    _handleSearch(q) {
+        const term = q.toLowerCase().trim();
+        if (!term) {
+            OrdersModule.filteredOrders = OrdersModule.getAll();
+        } else {
+            OrdersModule.filteredOrders = OrdersModule.getAll().filter(o =>
+                o.klant_naam?.toLowerCase().includes(term) ||
+                o.order_id?.toLowerCase().includes(term) ||
+                o.klant_email?.toLowerCase().includes(term) ||
+                o.collectie?.toLowerCase().includes(term)
+            );
+        }
+        this.renderCurrentPage();
     },
 
-    // Handle new order form submission
-    async handleNewOrder(form) {
-        if (!this.currentUser) {
-            UI.showToast('Sessie verlopen. Log opnieuw in.', 'error');
-            this.showLoginScreen();
-            return;
+    filterOrders(filter) {
+        document.querySelectorAll('.filter-tab').forEach(t =>
+            t.classList.toggle('active', t.dataset.fase === filter)
+        );
+        const all = OrdersModule.getAll();
+        switch (filter) {
+            case 'active': OrdersModule.filteredOrders = all.filter(o => o.huidige_fase < 12); break;
+            case 'brons':  OrdersModule.filteredOrders = all.filter(o => [13,14,15,16].includes(o.huidige_fase)); break;
+            default:       OrdersModule.filteredOrders = all;
         }
-
-        const formData = Object.fromEntries(new FormData(form));
-
-        // Calculate deadline (6 weeks from scan date)
-        if (formData.scan_datum) {
-            const scanDate = new Date(formData.scan_datum);
-            const deadline = new Date(scanDate);
-            deadline.setDate(deadline.getDate() + 42); // 6 weeks
-            formData.deadline = deadline.toISOString().split('T')[0];
-        }
-
-        // Show loading state
-        const submitBtn = form.querySelector('button[type="submit"]');
-        const originalText = submitBtn?.textContent || 'Order Aanmaken';
-        if (submitBtn) {
-            submitBtn.disabled = true;
-            submitBtn.textContent = 'Bezig...';
-        }
-
-        try {
-            const order = await OrdersModule.create(formData, this.currentUser?.id);
-
-            if (order) {
-                UI.showToast('Order aangemaakt', 'success');
-                this.closeNewOrder();
-                await OrdersModule.load();
-                this.renderCurrentPage();
-            } else {
-                UI.showToast('Order kon niet worden aangemaakt', 'error');
-            }
-        } catch (error) {
-            const errorMsg = window.lastRepositoryError?.message || error?.message || 'Fout bij aanmaken order';
-            UI.showToast(errorMsg, 'error', 5000);
-
-            if (error?.message?.includes('auth') || error?.message?.includes('unauthorized')) {
-                this.showLoginScreen();
-            }
-        } finally {
-            if (submitBtn) {
-                submitBtn.disabled = false;
-                submitBtn.textContent = originalText;
-            }
-        }
+        this.renderCurrentPage();
     },
 
-    // Close new order sheet
+    // ─── NEW ORDER FORM ───────────────────────────────────────────────────────
+
+    showNewOrderForm() {
+        // Reset the static HTML form (index.html → #newOrderSheet → #newOrderForm)
+        document.getElementById('newOrderForm')?.reset();
+        // Clear any previously stored deadline
+        const scanInput = document.getElementById('scanDatumInputHtml');
+        if (scanInput) delete scanInput.dataset.deadline;
+        // Open the sheet
+        document.getElementById('newOrderSheet')?.classList.add('active');
+    },
+
     closeNewOrder() {
         document.getElementById('newOrderSheet')?.classList.remove('active');
     },
 
-    // Navigate to page
-    navigate(page) {
-        this.currentPage = page;
-        
-        // Update page title
-        const titles = {
-            'dashboard': 'Dashboard',
-            'orders': 'Orders',
-            'archief': 'Archief',
-            'nazorg': 'Nazorg',
-            'todos': 'Taken',
-            'time': 'Tijdregistratie',
-            'settings': 'Instellingen',
-            'schema': 'Productie Schema',
-            'analytics': 'Analytics'
-        };
-        document.getElementById('pageTitle').textContent = titles[page] || 'Babycrafts';
-        
-        // Update nav active states
-        document.querySelectorAll('.nav-btn').forEach(btn => {
-            const isActive = btn.dataset.page === page;
-            btn.classList.toggle('text-primary-600', isActive);
-            btn.classList.toggle('text-gray-400', !isActive);
-        });
-        
-        // Show/hide search bar
-        document.getElementById('searchBar').classList.toggle('hidden', page !== 'orders');
-        
-        // Close side menu
-        document.getElementById('sideMenu').classList.remove('open');
-        document.getElementById('menuOverlay').classList.remove('visible');
-        
-        this.renderCurrentPage();
-    },
-
-    // Render current page
-    renderCurrentPage() {
-        const content = document.getElementById('mainContent');
-        if (!content) return;
-        
-        switch (this.currentPage) {
-            case 'dashboard':
-                this.renderDashboard(content);
-                break;
-            case 'orders':
-                this.renderOrdersPage(content);
-                break;
-            case 'archief':
-                this.renderArchiefPage(content);
-                break;
-            case 'nazorg':
-                this.renderNazorgPage(content);
-                break;
-            case 'todos':
-                this.renderTodosPage(content);
-                break;
-            case 'time':
-                this.renderTimePage(content);
-                break;
-            case 'settings':
-                this.renderSettingsPage(content);
-                break;
-            case 'schema':
-                this.renderSchemaPage(content);
-                break;
-            case 'analytics':
-                this.renderAnalyticsPage(content);
-                break;
-            default:
-                this.renderDashboard(content);
-        }
-    },
-
-    // Render dashboard
-    renderDashboard(container) {
-        const stats = OrdersModule.getDashboardStats();
-        const recentOrders = OrdersModule.getActive().slice(0, 5);
-        const todos = TodosModule.getByCategory();
-        const activity = Audit.getRecentActivity(5);
-
-        container.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">${I18n.t('nav.dashboard')}</h1>
-                <p class="page-subtitle">Welkom terug, ${this.currentUser?.user_metadata?.name || 'Gebruiker'}</p>
-            </div>
-
-            <!-- Stats Grid -->
-            <div class="stats-grid">
-                <div class="stat-card stat-card-blue" onclick="App.navigate('orders')" style="cursor: pointer;">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="stat-label">${I18n.t('orders.active')}</span>
-                        <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center">
-                            <i data-lucide="package" class="w-5 h-5 text-blue-600"></i>
-                        </div>
-                    </div>
-                    <div class="stat-value">${stats.active}</div>
-                </div>
-                
-                <div class="stat-card stat-card-green" onclick="App.navigate('archief')" style="cursor: pointer;">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="stat-label">${I18n.t('orders.shipped')}</span>
-                        <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center">
-                            <i data-lucide="check-circle" class="w-5 h-5 text-green-600"></i>
-                        </div>
-                    </div>
-                    <div class="stat-value">${stats.completed}</div>
-                </div>
-                
-                <div class="stat-card stat-card-red" onclick="App.showDelayedOrders()" style="cursor: pointer;">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="stat-label">${I18n.t('orders.delayed')}</span>
-                        <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center">
-                            <i data-lucide="alert-triangle" class="w-5 h-5 text-red-600"></i>
-                        </div>
-                    </div>
-                    <div class="stat-value">${stats.delayed}</div>
-                </div>
-                
-                <div class="stat-card stat-card-orange" onclick="App.showBronsgieterijOrders()" style="cursor: pointer;">
-                    <div class="flex items-center justify-between mb-2">
-                        <span class="stat-label">${I18n.t('orders.atBronsgieterij')}</span>
-                        <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center">
-                            <i data-lucide="factory" class="w-5 h-5 text-orange-600"></i>
-                        </div>
-                    </div>
-                    <div class="stat-value">${stats.atBronsgieterij}</div>
-                </div>
-            </div>
-
-            <!-- Recent Orders -->
-            <div class="content-card">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="card-title">Recente Orders</h2>
-                    <button class="btn-text" onclick="App.navigate('orders')">Alle orders →</button>
-                </div>
-                <div id="recentOrdersList" class="space-y-3">
-                    ${recentOrders.length > 0 
-                        ? recentOrders.map(order => this.createOrderCard(order)).join('')
-                        : '<div class="text-center py-8 text-gray-500">Geen actieve orders</div>'
-                    }
-                </div>
-            </div>
-
-            <!-- To-Do Preview -->
-            <div class="content-card">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="card-title">Openstaande Taken</h2>
-                    <button class="btn-text" onclick="App.navigate('todos')">Alle taken →</button>
-                </div>
-                <div class="space-y-2">
-                    ${todos.eenmalig?.slice(0, 3).map(todo => `
-                        <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                            <button onclick="App.toggleTodo('${todo.id}')" class="w-6 h-6 rounded-full border-2 border-amber-500 flex items-center justify-center hover:bg-amber-50">
-                                <i data-lucide="check" class="w-4 h-4 text-amber-500"></i>
-                            </button>
-                            <span class="flex-1">${Utils.escapeHtml(todo.titel)}</span>
-                            <span class="text-xs px-2 py-1 rounded-lg ${this.getPriorityClass(todo.prioriteit)}">${todo.prioriteit}</span>
-                        </div>
-                    `).join('') || '<div class="text-center py-4 text-gray-500">Geen openstaande taken</div>'}
-                </div>
-            </div>
-
-            <!-- Recent Activity -->
-            <div class="content-card">
-                <h2 class="card-title mb-4">Recente Activiteit</h2>
-                <div class="space-y-3">
-                    ${activity.map(act => `
-                        <div class="flex items-center gap-3 text-sm">
-                            <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                                <i data-lucide="activity" class="w-4 h-4 text-gray-500"></i>
-                            </div>
-                            <div class="flex-1">
-                                <span class="text-gray-700">${act.action}</span>
-                                <span class="text-gray-500">${act.entity}</span>
-                            </div>
-                            <span class="text-xs text-gray-400">${act.time}</span>
-                        </div>
-                    `).join('') || '<div class="text-center py-4 text-gray-500">Geen recente activiteit</div>'}
-                </div>
-            </div>
-        `;
-
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons({ nodes: [container] });
-        }
-    },
-
-    // Create order card HTML
-    createOrderCard(order) {
-        const faseConfig = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
-        const deadlineStatus = Utils.getDeadlineStatus(order);
-
-        // Calculate workflow progress
-        const workflow = getWorkflowForCollectie(order.collectie);
-        const workflowFases = WORKFLOWS[workflow]?.fases || [0];
-        const currentIndex = workflowFases.indexOf(order.huidige_fase);
-        const totalFases = workflowFases.length;
-        const progressPct = totalFases > 1 ? Math.round((currentIndex / (totalFases - 1)) * 100) : 0;
-
-        // Progress bar color
-        let progressColor = 'bg-blue-500';
-        if (progressPct >= 80) progressColor = 'bg-green-500';
-        else if (deadlineStatus?.class?.includes('red')) progressColor = 'bg-red-500';
-        else if (deadlineStatus?.class?.includes('orange')) progressColor = 'bg-orange-500';
-
-        return `
-            <div class="order-card" onclick="App.showOrderDetail('${order.order_id}')">
-                <div class="order-card-header">
-                    <div class="flex items-center gap-3 min-w-0 flex-1">
-                        <div class="w-10 h-10 rounded-xl ${faseConfig.color} flex items-center justify-center flex-shrink-0">
-                            <span class="text-sm font-bold text-white">${order.huidige_fase}</span>
-                        </div>
-                        <div class="min-w-0 flex-1">
-                            <p class="font-semibold text-gray-900 truncate">${Utils.escapeHtml(order.klant_naam)}</p>
-                            <p class="text-xs text-gray-500">${Utils.escapeHtml(order.order_id)} · ${Utils.escapeHtml(order.collectie)}</p>
-                        </div>
-                    </div>
-                    <span class="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0 ml-2">
-                        ${I18n.getFaseName(order.huidige_fase)}
-                    </span>
-                </div>
-
-                <!-- Progress bar -->
-                <div class="mt-3">
-                    <div class="flex items-center justify-between mb-1">
-                        <span class="text-xs text-gray-400">Voortgang</span>
-                        <span class="text-xs font-medium text-gray-600">${currentIndex + 1}/${totalFases} fases</span>
-                    </div>
-                    <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                        <div class="h-full ${progressColor} rounded-full transition-all" style="width: ${progressPct}%"></div>
-                    </div>
-                </div>
-
-                ${deadlineStatus ? `
-                    <div class="mt-2 flex items-center gap-1.5 text-xs ${deadlineStatus.class}">
-                        <i data-lucide="clock" class="w-3.5 h-3.5"></i>
-                        <span>${deadlineStatus.text} · ${Utils.formatDate(order.deadline)}</span>
-                    </div>
-                ` : order.deadline ? `
-                    <div class="mt-2 flex items-center gap-1.5 text-xs text-gray-400">
-                        <i data-lucide="calendar" class="w-3.5 h-3.5"></i>
-                        <span>Deadline: ${Utils.formatDate(order.deadline)}</span>
-                    </div>
-                ` : ''}
-            </div>
-        `;
-    },
-
-    // Render orders page
-    renderOrdersPage(container) {
-        // Sort by date descending (newest first)
-        const sortedOrders = [...OrdersModule.filteredOrders].sort((a, b) => {
-            return new Date(b.created_at) - new Date(a.created_at);
-        });
-
-        container.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">Alle Orders</h1>
-                <p class="page-subtitle">${sortedOrders.length} order(s) gevonden</p>
-            </div>
-
-            <!-- Filters - Vereenvoudigd -->
-            <div class="filter-tabs mb-4">
-                <button class="filter-tab active" data-fase="all" onclick="App.filterOrders('all')">Alle</button>
-                <button class="filter-tab" data-fase="active" onclick="App.filterOrders('active')">Actief</button>
-                <button class="filter-tab" data-fase="brons" onclick="App.filterOrders('brons')">Brons</button>
-            </div>
-
-            <!-- Orders List -->
-            <div id="ordersList" class="space-y-3">
-                ${sortedOrders.length > 0 
-                    ? sortedOrders.map(order => this.createOrderCard(order)).join('')
-                    : '<div class="text-center py-12 text-gray-500">Geen orders gevonden</div>'
-                }
-            </div>
-        `;
-
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons({ nodes: [container] });
-        }
-    },
-
-    // Filter orders
-    filterOrders(filter) {
-        // Update active tab
-        document.querySelectorAll('.filter-tab').forEach(tab => {
-            tab.classList.toggle('active', tab.dataset.fase === filter);
-        });
-
-        switch(filter) {
-            case 'all':
-                OrdersModule.filteredOrders = OrdersModule.orders.filter(o => o.status !== 'deleted');
-                break;
-            case 'active':
-                OrdersModule.filteredOrders = OrdersModule.orders.filter(o => 
-                    o.huidige_fase < 12 && o.status !== 'deleted'
-                );
-                break;
-            case 'brons':
-                OrdersModule.filteredOrders = OrdersModule.orders.filter(o => 
-                    (o.huidige_fase === 13 || o.huidige_fase === 14 || o.huidige_fase === 15 || o.huidige_fase === 16) && 
-                    o.status !== 'deleted'
-                );
-                break;
-        }
-        this.renderCurrentPage();
-    },
-
-    // Handle search
-    handleSearch(query) {
-        const searchTerm = query.toLowerCase().trim();
-        if (!searchTerm) {
-            OrdersModule.filteredOrders = OrdersModule.orders.filter(o => o.status !== 'deleted');
-        } else {
-            OrdersModule.filteredOrders = OrdersModule.orders.filter(o => {
-                if (o.status === 'deleted') return false;
-                return (
-                    o.klant_naam?.toLowerCase().includes(searchTerm) ||
-                    o.order_id?.toLowerCase().includes(searchTerm) ||
-                    o.klant_email?.toLowerCase().includes(searchTerm) ||
-                    o.collectie?.toLowerCase().includes(searchTerm)
-                );
-            });
-        }
-        this.renderCurrentPage();
-    },
-
-    // Render archief page
-    renderArchiefPage(container) {
-        const completed = OrdersModule.orders.filter(o => 
-            (o.huidige_fase === 12 || o.status === 'completed') && o.status !== 'deleted'
-        ).sort((a, b) => new Date(b.afgerond_datum || b.updated_at) - new Date(a.afgerond_datum || a.updated_at));
-
-        container.innerHTML = `
-            <div class="page-header">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="page-title">Archief</h1>
-                        <p class="page-subtitle">${completed.length} afgeronde orders</p>
-                    </div>
-                    ${completed.length > 0 ? `
-                        <button onclick="App.confirmDeleteAllArchived()" class="text-red-500 text-sm font-medium px-3 py-2">
-                            Alles wissen
-                        </button>
-                    ` : ''}
-                </div>
-            </div>
-
-            <div class="space-y-3">
-                ${completed.length > 0 
-                    ? completed.map(order => this.createOrderCard(order)).join('')
-                    : '<div class="text-center py-12 text-gray-500">Geen afgeronde orders</div>'
-                }
-            </div>
-        `;
-    },
-
-    // Confirm delete all archived
-    confirmDeleteAllArchived() {
-        const count = OrdersModule.orders.filter(o => 
-            (o.huidige_fase === 12 || o.status === 'completed') && o.status !== 'deleted'
-        ).length;
-
-        UI.showConfirm({
-            title: 'Alle gearchiveerde orders verwijderen?',
-            message: `Dit verwijdert ${count} afgeronde order(s) uit de app. De data blijft in de database.`,
-            confirmText: 'Alles verwijderen',
-            cancelText: 'Annuleren',
-            type: 'danger',
-            onConfirm: async () => {
-                try {
-                    const archived = OrdersModule.orders.filter(o => 
-                        (o.huidige_fase === 12 || o.status === 'completed') && o.status !== 'deleted'
-                    );
-                    
-                    for (const order of archived) {
-                        await OrdersModule.delete(order.order_id, this.currentUser?.id);
-                    }
-                    
-                    UI.showToast(`${archived.length} orders verwijderd uit app`, 'success');
-                    this.renderCurrentPage();
-                } catch (error) {
-                    UI.showToast('Fout bij verwijderen', 'error');
-                }
-            }
-        });
-    },
-
-    // Render nazorg page
-    renderNazorgPage(container) {
-        const nazorgOrders = OrdersModule.getNazorgOrders();
-        
-        container.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">${I18n.t('nav.nazorg')}</h1>
-                <p class="page-subtitle">Orders in nazorg fase</p>
-            </div>
-
-            <div class="space-y-3">
-                ${nazorgOrders.length > 0 
-                    ? nazorgOrders.map(order => {
-                        const color = OrdersModule.getNazorgColor(order);
-                        return `
-                            <div class="order-card border-l-4 ${color === 'pink' ? 'border-pink-500' : 'border-blue-500'}">
-                                <div class="order-card-header">
-                                    <div>
-                                        <p class="font-semibold">${Utils.escapeHtml(order.klant_naam)}</p>
-                                        <p class="text-sm text-gray-500">${Utils.escapeHtml(order.order_id)}</p>
-                                    </div>
-                                    <span class="text-xs px-2 py-1 rounded-lg ${color === 'pink' ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'}">
-                                        ${color === 'pink' ? '4+ dagen' : 'Recent'}
-                                    </span>
-                                </div>
-                                <div class="mt-3 flex gap-2">
-                                    <button onclick="App.sendNazorgMessage('${order.order_id}')" 
-                                            class="flex-1 py-2 bg-green-500 text-white rounded-lg text-sm">
-                                        WhatsApp
-                                    </button>
-                                    <button onclick="App.completeNazorg('${order.order_id}')" 
-                                            class="flex-1 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm">
-                                        Afronden
-                                    </button>
-                                </div>
-                            </div>
-                        `;
-                    }).join('')
-                    : '<div class="text-center py-12 text-gray-500">Geen orders in nazorg</div>'
-                }
-            </div>
-        `;
-    },
-
-    // Render todos page
-    renderTodosPage(container) {
-        const todos = TodosModule.getByCategory();
-        const categories = [
-            { key: 'dagelijks', label: 'Dagelijks' },
-            { key: 'wekelijks', label: 'Wekelijks' },
-            { key: 'maandelijks', label: 'Maandelijks' },
-            { key: 'eenmalig', label: 'Eenmalig' }
-        ];
-
-        container.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">${I18n.t('nav.todos')}</h1>
-                <p class="page-subtitle">Beheer je taken</p>
-            </div>
-
-            <!-- Add Todo Form -->
-            <div class="content-card mb-4">
-                <form id="addTodoForm" class="flex flex-col sm:flex-row gap-2">
-                    <input type="text" id="todoTitle" placeholder="Nieuwe taak..." 
-                           class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:border-amber-500 outline-none text-base">
-                    <div class="flex gap-2">
-                        <select id="todoCategory" class="flex-1 sm:flex-none px-4 py-3 border border-gray-200 rounded-xl bg-white text-base">
-                            ${categories.map(c => `<option value="${c.key}">${c.label}</option>`).join('')}
-                        </select>
-                        <button type="submit" class="px-6 py-3 bg-amber-500 text-white rounded-xl font-medium whitespace-nowrap">
-                            Toevoegen
-                        </button>
-                    </div>
-                </form>
-            </div>
-
-            <!-- Todo Lists -->
-            ${categories.map(cat => `
-                <div class="content-card mb-4">
-                    <h3 class="font-semibold text-gray-700 mb-3">${cat.label}</h3>
-                    <div class="space-y-2">
-                        ${todos[cat.key]?.length > 0 
-                            ? todos[cat.key].map(todo => `
-                                <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
-                                    <button onclick="App.toggleTodo('${todo.id}')" 
-                                            class="w-6 h-6 rounded-full border-2 border-amber-500 flex items-center justify-center hover:bg-amber-50">
-                                        <i data-lucide="check" class="w-4 h-4 text-amber-500"></i>
-                                    </button>
-                                    <span class="flex-1">${Utils.escapeHtml(todo.titel)}</span>
-                                    <button onclick="App.deleteTodo('${todo.id}')" class="text-gray-400 hover:text-red-500">
-                                        <i data-lucide="trash-2" class="w-4 h-4"></i>
-                                    </button>
-                                </div>
-                            `).join('')
-                            : '<div class="text-center py-4 text-gray-400 text-sm">Geen taken</div>'
-                        }
-                    </div>
-                </div>
-            `).join('')}
-        `;
-
-        // Setup form handler
-        document.getElementById('addTodoForm')?.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const title = document.getElementById('todoTitle').value;
-            const category = document.getElementById('todoCategory').value;
-            if (title.trim()) {
-                await TodosModule.create(title, category, 'medium', this.currentUser?.id);
-                UI.showToast('Taak toegevoegd', 'success');
-                this.renderTodosPage(container);
-            }
-        });
-
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons({ nodes: [container] });
-        }
-    },
-
-    // Render time page
-    renderTimePage(container) {
-        const stats = TimeModule.getStats(this.currentUser?.id);
-        const pending = TimeModule.getPending();
-        const perMedewerker = TimeModule.getPerMedewerker();
-
-        container.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">${I18n.t('nav.time')}</h1>
-                <p class="page-subtitle">Tijdregistratie</p>
-            </div>
-
-            <!-- Time Stats -->
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <span class="stat-label">Vandaag</span>
-                    <div class="stat-value">${Utils.formatTime(stats.today)}</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-label">Deze week</span>
-                    <div class="stat-value">${Utils.formatTime(stats.week)}</div>
-                </div>
-                <div class="stat-card">
-                    <span class="stat-label">Deze maand</span>
-                    <div class="stat-value">${Utils.formatTime(stats.month)}</div>
-                </div>
-            </div>
-
-            <!-- Add Time Entry -->
-            <div class="content-card">
-                <h3 class="card-title mb-4">Tijd registreren</h3>
-                <form id="timeForm" class="space-y-3">
-                    <div class="grid grid-cols-2 gap-3">
-                        <input type="date" id="timeDate" required
-                               class="px-4 py-3 border border-gray-200 rounded-xl">
-                        <input type="time" id="timeStart" required
-                               class="px-4 py-3 border border-gray-200 rounded-xl">
-                        <input type="time" id="timeEnd" required
-                               class="px-4 py-3 border border-gray-200 rounded-xl">
-                        <input type="number" id="timeBreak" placeholder="Pauze (min)" min="0"
-                               class="px-4 py-3 border border-gray-200 rounded-xl">
-                    </div>
-                    <input type="text" id="timeNote" placeholder="Opmerking (optioneel)"
-                           class="w-full px-4 py-3 border border-gray-200 rounded-xl">
-                    <button type="submit" class="w-full py-3 bg-amber-500 text-white rounded-xl font-medium">
-                        Registreren
-                    </button>
-                </form>
-            </div>
-
-            <!-- Pending Approvals -->
-            ${Object.keys(perMedewerker).length > 0 ? `
-                <div class="content-card">
-                    <h3 class="card-title mb-4">Overzicht per medewerker</h3>
-                    <div class="space-y-3">
-                        ${Object.values(perMedewerker).map(m => `
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                                <div>
-                                    <p class="font-medium">${Utils.escapeHtml(m.naam)}</p>
-                                    <p class="text-sm text-gray-500">${m.approved} registraties</p>
-                                </div>
-                                <div class="text-right">
-                                    <p class="font-semibold">${Utils.formatTime(m.dezeMaandMinuten)}</p>
-                                    <p class="text-xs text-gray-500">deze maand</p>
-                                </div>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            ` : ''}
-        `;
-
-        // Set default date
-        document.getElementById('timeDate').valueAsDate = new Date();
-
-        // Setup form handler
-        document.getElementById('timeForm')?.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const datum = document.getElementById('timeDate').value;
-            const start = document.getElementById('timeStart').value;
-            const eind = document.getElementById('timeEnd').value;
-            const pauze = parseInt(document.getElementById('timeBreak').value) || 0;
-            const opmerking = document.getElementById('timeNote').value;
-
-            try {
-                await TimeModule.create(datum, start, eind, pauze, opmerking, this.currentUser?.id, this.currentUser?.email);
-                UI.showToast('Tijd geregistreerd', 'success');
-                this.renderTimePage(container);
-            } catch (error) {
-                UI.showToast('Fout bij registreren', 'error');
-            }
-        });
-    },
-
-    // Render schema page (production schema)
-    renderSchemaPage(container) {
-        const activeOrders = OrdersModule.getActive();
-        
-        // Group orders by workflow
-        const standardOrders = activeOrders.filter(o => {
-            const wf = getWorkflowForCollectie(o.collectie);
-            return wf === 'standard';
-        });
-        
-        const atelierBronzeOrders = activeOrders.filter(o => {
-            const wf = getWorkflowForCollectie(o.collectie);
-            return wf === 'atelier_bronze';
-        });
-        
-        const gegotenBronsOrders = activeOrders.filter(o => {
-            const wf = getWorkflowForCollectie(o.collectie);
-            return wf === 'gegoten_brons';
-        });
-        
-        // Build workflow sections
-        const buildWorkflowSection = (title, orders, workflowKey) => {
-            if (orders.length === 0) return '';
-            
-            const workflow = WORKFLOWS[workflowKey];
-            
-            return `
-                <div class="content-card mb-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <div>
-                            <h3 class="font-semibold text-gray-800">${title}</h3>
-                            <p class="text-sm text-gray-500">${orders.length} orders • ${workflow.duration}</p>
-                        </div>
-                        <span class="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded-full">${workflowKey}</span>
-                    </div>
-                    
-                    <!-- Timeline Header -->
-                    <div class="overflow-x-auto">
-                        <div class="flex gap-2 mb-4 min-w-max">
-                            ${workflow.fases.map(faseNum => {
-                                const faseConfig = FASES_CONFIG[faseNum];
-                                return `
-                                    <div class="flex-shrink-0 w-24 text-center">
-                                        <div class="w-8 h-8 mx-auto rounded-full ${faseConfig.color} flex items-center justify-center text-white text-xs font-bold mb-1">
-                                            ${faseNum}
-                                        </div>
-                                        <p class="text-xs text-gray-600 truncate" title="${faseConfig.name}">${faseConfig.name}</p>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
-                    
-                    <!-- Orders -->
-                    <div class="space-y-2">
-                        ${orders.map(order => {
-                            const currentIndex = workflow.fases.indexOf(order.huidige_fase);
-                            return `
-                                <div class="flex items-center gap-2 p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors"
-                                     onclick="App.showOrderDetail('${order.order_id}')">
-                                    <div class="w-32 flex-shrink-0">
-                                        <p class="font-medium text-sm truncate">${Utils.escapeHtml(order.klant_naam)}</p>
-                                        <p class="text-xs text-gray-500">${order.order_id}</p>
-                                    </div>
-                                    <div class="flex-1 flex gap-1">
-                                        ${workflow.fases.map((faseNum, idx) => {
-                                            const faseConfig = FASES_CONFIG[faseNum];
-                                            const isCompleted = idx < currentIndex;
-                                            const isCurrent = idx === currentIndex;
-                                            
-                                            let bgClass = 'bg-gray-200';
-                                            if (isCompleted) bgClass = 'bg-green-500';
-                                            else if (isCurrent) bgClass = faseConfig.color;
-                                            
-                                            return `
-                                                <div class="flex-1 h-6 ${bgClass} rounded ${isCurrent ? 'ring-2 ring-offset-1 ring-blue-400' : ''}"
-                                                     title="${faseConfig.name} ${isCurrent ? '(huidig)' : isCompleted ? '(voltooid)' : ''}">
-                                                </div>
-                                            `;
-                                        }).join('')}
-                                    </div>
-                                    <div class="w-8 text-center">
-                                        ${currentIndex === workflow.fases.length - 1 ? 
-                                            '<span class="text-green-500">✓</span>' :
-                                            `<span class="text-xs text-gray-500">${currentIndex + 1}/${workflow.fases.length}</span>`
-                                        }
-                                    </div>
-                                </div>
-                            `;
-                        }).join('')}
-                    </div>
-                </div>
-            `;
-        };
-        
-        container.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">Productie Schema</h1>
-                <p class="page-subtitle">Overzicht van alle workflows</p>
-            </div>
-            
-            ${standardOrders.length > 0 ? buildWorkflowSection('Standaard Workflow', standardOrders, 'standard') : ''}
-            ${atelierBronzeOrders.length > 0 ? buildWorkflowSection('Atelier Bronze Workflow', atelierBronzeOrders, 'atelier_bronze') : ''}
-            ${gegotenBronsOrders.length > 0 ? buildWorkflowSection('Gegoten Brons Workflow', gegotenBronsOrders, 'gegoten_brons') : ''}
-            
-            ${activeOrders.length === 0 ? `
-                <div class="text-center py-12 text-gray-500">
-                    <i data-lucide="columns" class="w-12 h-12 mx-auto mb-4 opacity-50"></i>
-                    <p>Geen actieve orders</p>
-                </div>
-            ` : ''}
-        `;
-        
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons({ nodes: [container] });
-        }
-    },
-
-    // Render settings page
-    renderSettingsPage(container) {
-        container.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">${I18n.t('nav.settings')}</h1>
-                <p class="page-subtitle">App instellingen</p>
-            </div>
-
-            <!-- Push Notifications -->
-            <div class="content-card mb-4">
-                <div class="flex items-center justify-between py-3 border-b">
-                    <div>
-                        <p class="font-medium">Dagelijkse Notificaties</p>
-                        <p class="text-sm text-gray-500">Ontvang highlights van taken en deadlines</p>
-                    </div>
-                    <button onclick="App.requestNotificationPermission()" id="notifBtn" 
-                            class="px-4 py-2 bg-amber-500 text-white rounded-lg text-sm font-medium">
-                        Inschakelen
-                    </button>
-                </div>
-                <div class="mt-3 p-3 bg-gray-50 rounded-xl">
-                    <p class="text-xs text-gray-600">
-                        <i data-lucide="bell" class="w-4 h-4 inline mr-1"></i>
-                        Status: <span id="notifStatus">${this.getNotificationStatus()}</span>
-                    </p>
-                </div>
-            </div>
-
-            <div class="content-card space-y-4">
-                <div class="flex items-center justify-between py-3 border-b">
-                    <div>
-                        <p class="font-medium">Taal</p>
-                        <p class="text-sm text-gray-500">Kies je voorkeurstaal</p>
-                    </div>
-                    <select id="languageSelect" class="px-4 py-2 border border-gray-200 rounded-lg">
-                        <option value="nl" ${I18n.getLanguage() === 'nl' ? 'selected' : ''}>Nederlands</option>
-                        <option value="en" ${I18n.getLanguage() === 'en' ? 'selected' : ''}>English</option>
-                    </select>
-                </div>
-
-                <div class="flex items-center justify-between py-3 border-b">
-                    <div>
-                        <p class="font-medium">Dark Mode</p>
-                        <p class="text-sm text-gray-500">Donker thema</p>
-                    </div>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="darkModeToggle" class="sr-only peer">
-                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-                    </label>
-                </div>
-
-                <div class="py-3">
-                    <p class="font-medium mb-2">App Info</p>
-                    <p class="text-sm text-gray-500">Versie ${CONFIG.VERSION}</p>
-                    <p class="text-sm text-gray-500">© 2024 Babycrafts</p>
-                </div>
-            </div>
-
-            <button onclick="App.logout()" class="w-full py-3 bg-red-500 text-white rounded-xl font-medium mt-4">
-                Uitloggen
-            </button>
-        `;
-
-        // Language change
-        document.getElementById('languageSelect')?.addEventListener('change', (e) => {
-            I18n.setLanguage(e.target.value);
-            this.renderCurrentPage();
-            UI.showToast('Taal gewijzigd', 'success');
-        });
-
-        // Dark mode toggle
-        document.getElementById('darkModeToggle')?.addEventListener('change', (e) => {
-            document.documentElement.classList.toggle('dark', e.target.checked);
-        });
-
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons({ nodes: [container] });
-        }
-    },
-
-    // Show order detail
-    async showOrderDetail(orderId) {
-        const order = OrdersModule.getById(orderId);
-        if (!order) return;
-
-        const faseConfig = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
-        const canAdvance = OrdersModule.canAdvance(order);
-        const advanceText = OrdersModule.getAdvanceButtonText(order);
-        const deadlineStatus = Utils.getDeadlineStatus(order);
-
-        // Compact inline workflow progress
-        const workflow = getWorkflowForCollectie(order.collectie);
-        const workflowFases = WORKFLOWS[workflow]?.fases || [0];
-        const currentIndex = workflowFases.indexOf(order.huidige_fase);
-
-        const timelineHtml = workflowFases.map((faseNum, idx) => {
-            const fc = FASES_CONFIG[faseNum];
-            const done = idx < currentIndex;
-            const current = idx === currentIndex;
-            return `
-                <div class="flex flex-col items-center" style="min-width:0;flex:1">
-                    <div class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold
-                        ${done ? 'bg-green-500 text-white' : current ? fc.color + ' text-white ring-2 ring-offset-1 ring-amber-400' : 'bg-gray-100 text-gray-400'}">
-                        ${done ? '✓' : faseNum}
-                    </div>
-                    ${idx < workflowFases.length - 1 ? '<div class="h-0.5 w-full bg-gray-200 mt-3" style="flex:1"></div>' : ''}
-                </div>
-            `;
-        }).join('');
-
-        UI.showBottomSheet({
-            title: `Order ${orderId}`,
-            content: `
-                <div class="space-y-4">
-                    <!-- Klant -->
-                    <div class="flex items-center gap-3 p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-100">
-                        <div class="w-12 h-12 rounded-full bg-amber-500 text-white flex items-center justify-center text-lg font-bold flex-shrink-0">
-                            ${order.klant_naam.charAt(0).toUpperCase()}
-                        </div>
-                        <div class="min-w-0">
-                            <p class="font-bold text-gray-900">${Utils.escapeHtml(order.klant_naam)}</p>
-                            <p class="text-sm text-gray-500 truncate">${Utils.escapeHtml(order.klant_email)}</p>
-                            ${order.klant_telefoon ? `<p class="text-sm text-gray-500">${Utils.escapeHtml(order.klant_telefoon)}</p>` : ''}
-                        </div>
-                        <button onclick="App.showCustomerPassport('${orderId}')" class="ml-auto p-2 bg-white rounded-xl border border-gray-200 flex-shrink-0">
-                            <i data-lucide="user" class="w-4 h-4 text-gray-500"></i>
-                        </button>
-                    </div>
-
-                    <!-- Details grid -->
-                    <div class="grid grid-cols-2 gap-2">
-                        <div class="bg-gray-50 rounded-xl p-3">
-                            <p class="text-xs text-gray-400 mb-0.5">Collectie</p>
-                            <p class="font-semibold text-sm">${Utils.escapeHtml(order.collectie)}</p>
-                        </div>
-                        <div class="bg-gray-50 rounded-xl p-3">
-                            <p class="text-xs text-gray-400 mb-0.5">Hoogte</p>
-                            <p class="font-semibold text-sm">${order.hoogte_cm} cm</p>
-                        </div>
-                        <div class="bg-gray-50 rounded-xl p-3">
-                            <p class="text-xs text-gray-400 mb-0.5">Sokkel</p>
-                            <p class="font-semibold text-sm">${order.sokkel || 'Zonder'}</p>
-                        </div>
-                        <div class="bg-gray-50 rounded-xl p-3 ${deadlineStatus?.class || ''}">
-                            <p class="text-xs text-gray-400 mb-0.5">Deadline</p>
-                            <p class="font-semibold text-sm">${Utils.formatDate(order.deadline)}</p>
-                            ${deadlineStatus ? `<p class="text-xs">${deadlineStatus.text}</p>` : ''}
-                        </div>
-                    </div>
-
-                    <!-- Huidige fase -->
-                    <div class="p-3 rounded-xl border-l-4 ${faseConfig.color.replace('bg-', 'border-')} bg-gray-50">
-                        <p class="text-xs text-gray-500 mb-0.5">Huidige fase · ${currentIndex + 1} van ${workflowFases.length}</p>
-                        <p class="font-bold ${faseConfig.text}">${I18n.getFaseName(order.huidige_fase)}</p>
-                    </div>
-
-                    <!-- Workflow progress (compact) -->
-                    <div class="overflow-x-auto pb-1">
-                        <div class="flex items-center gap-1 min-w-max">
-                            ${workflowFases.map((faseNum, idx) => {
-                                const fc = FASES_CONFIG[faseNum];
-                                const done = idx < currentIndex;
-                                const current = idx === currentIndex;
-                                return `
-                                    <div class="flex items-center">
-                                        <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0
-                                            ${done ? 'bg-green-500 text-white' : current ? fc.color + ' text-white ring-2 ring-amber-400 ring-offset-1' : 'bg-gray-100 text-gray-400'}"
-                                            title="${fc.name}">
-                                            ${done ? '✓' : faseNum}
-                                        </div>
-                                        ${idx < workflowFases.length - 1 ? '<div class="w-3 h-0.5 bg-gray-200 mx-0.5"></div>' : ''}
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
-
-                    ${order.extra_notities ? `
-                        <div class="p-3 bg-yellow-50 rounded-xl border border-yellow-100">
-                            <p class="text-xs font-medium text-yellow-700 mb-1">Notities</p>
-                            <p class="text-sm text-gray-700">${Utils.escapeHtml(order.extra_notities)}</p>
-                        </div>
-                    ` : ''}
-
-                    <!-- Actions -->
-                    <div class="space-y-2">
-                        <button onclick="App.advanceOrder('${orderId}')"
-                                class="w-full py-3.5 ${canAdvance.can ? 'bg-green-500 hover:bg-green-600' : 'bg-gray-200 cursor-not-allowed'} text-white rounded-xl font-semibold transition-colors"
-                                ${!canAdvance.can ? 'disabled' : ''}>
-                            ${advanceText}
-                        </button>
-
-                        ${order.huidige_fase === 9 ? `
-                            <button onclick="App.showPostNL('${orderId}')"
-                                    class="w-full py-3 bg-[#003366] text-white rounded-xl font-medium">
-                                📦 PostNL Pakket
-                            </button>
-                        ` : ''}
-
-                        <div class="grid grid-cols-3 gap-2">
-                            <button onclick="App.showProductionSchema('${orderId}')"
-                                    class="py-2.5 bg-blue-50 text-blue-600 rounded-xl text-sm font-medium">
-                                📋 Schema
-                            </button>
-                            <button onclick="App.editOrder('${orderId}')"
-                                    class="py-2.5 bg-amber-50 text-amber-700 rounded-xl text-sm font-medium">
-                                ✏️ Bewerken
-                            </button>
-                            <button onclick="App.deleteOrder('${orderId}')"
-                                    class="py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium">
-                                🗑️ Wissen
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `
-        });
-    },
-
-    // Show new order form - opens the static newOrderSheet from index.html
-    showNewOrderForm() {
-        // Reset the form fields
-        const form = document.getElementById('newOrderForm');
-        if (form) form.reset();
-
-        // Open the static sheet
-        const sheet = document.getElementById('newOrderSheet');
-        if (sheet) sheet.classList.add('active');
-
-        // Wire up scan date → deadline calculation (once per open)
-        const scanInput = document.getElementById('scanDatumInputHtml');
-        if (scanInput && !scanInput._deadlineListenerAdded) {
-            scanInput.addEventListener('change', (e) => {
-                if (e.target.value) {
-                    const d = new Date(e.target.value);
-                    d.setDate(d.getDate() + 42); // 6 weeks
-                    e.target.dataset.deadline = d.toISOString().split('T')[0];
-                }
-            });
-            scanInput._deadlineListenerAdded = true;
-        }
-
-        // Wire up form submit (once)
-        if (form && !form._submitListenerAdded) {
-            form.addEventListener('submit', async (e) => {
-                e.preventDefault();
-
-                // Restore session if needed
-                if (!this.currentUser) {
-                    const saved = localStorage.getItem('babycrafts_session');
-                    if (saved) {
-                        try { this.currentUser = JSON.parse(saved); } catch (_) {}
-                    }
-                }
-
-                if (!this.currentUser?.id) {
-                    UI.showToast('Je bent niet ingelogd. Log opnieuw in.', 'error', 5000);
-                    this.showLoginScreen();
-                    return;
-                }
-
-                const formData = Object.fromEntries(new FormData(form));
-
-                // Attach calculated deadline from scan date
-                const sd = document.getElementById('scanDatumInputHtml');
-                if (sd?.dataset.deadline) {
-                    formData.deadline = sd.dataset.deadline;
-                } else if (formData.scan_datum) {
-                    const d = new Date(formData.scan_datum);
-                    d.setDate(d.getDate() + 42);
-                    formData.deadline = d.toISOString().split('T')[0];
-                }
-
-                const submitBtn = form.querySelector('button[type="submit"]');
-                const originalText = submitBtn?.textContent || 'Order Aanmaken';
-                if (submitBtn) {
-                    submitBtn.disabled = true;
-                    submitBtn.textContent = 'Bezig...';
-                }
-
-                try {
-                    const order = await OrdersModule.create(formData, this.currentUser.id);
-
-                    if (order) {
-                        UI.showToast('Order succesvol aangemaakt!', 'success');
-                        this.closeNewOrder();
-                        form.reset();
-                        await OrdersModule.load();
-                        this.renderCurrentPage();
-                    } else {
-                        UI.showToast('Order kon niet worden aangemaakt', 'error', 5000);
-                    }
-                } catch (error) {
-                    const errorMsg = window.lastRepositoryError?.message || error?.message || 'Onbekende fout';
-                    UI.showToast(errorMsg, 'error', 5000);
-                } finally {
-                    if (submitBtn) {
-                        submitBtn.disabled = false;
-                        submitBtn.textContent = originalText;
-                    }
-                }
-            });
-            form._submitListenerAdded = true;
-        }
-    },
-
-    // Advance order to next fase
-    async advanceOrder(orderId) {
-        const order = OrdersModule.getById(orderId);
-        if (!order) return;
-
-        const nextFase = getNextFase(order.huidige_fase, order.collectie);
-        if (nextFase === null) {
-            UI.showToast('Order is al afgerond', 'info');
+    async _handleOrderSubmit(form) {
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const origText  = submitBtn?.textContent || 'Order Aanmaken';
+
+        if (!this.currentUser) {
+            UI.showToast('Niet ingelogd. Log opnieuw in.', 'error');
+            this._showLogin();
             return;
         }
 
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Bezig...'; }
+
         try {
-            await OrdersModule.updateFase(orderId, nextFase, this.currentUser?.id);
-            
-            // Show communication modal for certain fases
-            if (nextFase === 1) {
-                CommunicationsModule.showChoiceModal(order, 'welcome');
-            } else if (nextFase === 10) {
-                CommunicationsModule.showChoiceModal(order, 'shipping');
-            } else if (nextFase === 11) {
-                CommunicationsModule.showChoiceModal(order, 'nazorg');
+            const fd = Object.fromEntries(new FormData(form));
+
+            // Apply deadline from scan date if set
+            const scanInput = document.getElementById('scanDatumInputHtml');
+            if (scanInput?.dataset.deadline) fd.deadline = scanInput.dataset.deadline;
+            else if (fd.scan_datum) {
+                const d = new Date(fd.scan_datum);
+                d.setDate(d.getDate() + 42);
+                fd.deadline = d.toISOString().split('T')[0];
             }
-            
+
+            const order = await OrdersModule.create(fd, this.currentUser.id);
+            if (order) {
+                UI.showToast('Order aangemaakt!', 'success');
+                this.closeNewOrder();
+                this.renderCurrentPage();
+            } else {
+                UI.showToast('Order kon niet worden aangemaakt.', 'error');
+            }
+        } catch (err) {
+            UI.showToast(err.message || 'Fout bij opslaan.', 'error', 5000);
+        } finally {
+            if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = origText; }
+        }
+    },
+
+    // ─── ORDER ACTIONS ────────────────────────────────────────────────────────
+
+    async advanceOrder(orderId) {
+        const order = OrdersModule.getById(orderId);
+        if (!order) return;
+        const next = getNextFase(order.huidige_fase, order.collectie);
+        if (next === null) { UI.showToast('Order is al afgerond', 'info'); return; }
+
+        try {
+            await OrdersModule.updateFase(orderId, next);
+            if (next === 1) CommunicationsModule.showChoiceModal(order, 'welcome');
+            else if (next === 10) CommunicationsModule.showChoiceModal(order, 'shipping');
+            else if (next === 11) CommunicationsModule.showChoiceModal(order, 'nazorg');
             UI.closeBottomSheet();
             UI.showToast('Fase bijgewerkt', 'success');
             this.renderCurrentPage();
-        } catch (error) {
-            console.error('Advance order error:', error);
-            const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij bijwerken';
-            UI.showToast(errorMsg, 'error', 5000);
+        } catch (err) {
+            UI.showToast(err.message || 'Fout bij bijwerken.', 'error');
         }
     },
 
-    // Show PostNL helper
-    showPostNL(orderId) {
-        const order = OrdersModule.getById(orderId);
-        if (order) {
-            CommunicationsModule.showPostNLHelper(order);
-        }
-    },
-
-    // Delete order
     deleteOrder(orderId) {
         UI.showConfirm({
             title: 'Order verwijderen?',
@@ -1495,721 +421,859 @@ const App = {
             type: 'danger',
             onConfirm: async () => {
                 try {
-                    await OrdersModule.delete(orderId, this.currentUser?.id);
+                    await OrdersModule.delete(orderId);
                     UI.closeBottomSheet();
                     UI.showToast('Order verwijderd', 'success');
                     this.renderCurrentPage();
-                } catch (error) {
-                    UI.showToast('Fout bij verwijderen', 'error');
+                } catch (err) {
+                    UI.showToast(err.message || 'Fout bij verwijderen.', 'error');
                 }
-            }
+            },
         });
     },
 
-    // Toggle todo
+    editOrder(orderId) {
+        const order = OrdersModule.getById(orderId);
+        if (!order) return;
+        const collecties = ['Figura','Arte-Lumina','Natura-Alba','Ouder & Kind','Babybeeld','Atelier-Bronze','Gegoten Brons','Aangepast'];
+
+        UI.showBottomSheet({
+            title: `Bewerk ${orderId}`,
+            content: `
+                <form id="editForm" class="space-y-4 overflow-y-auto max-h-[65vh] p-1">
+                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
+                        <h4 class="font-medium text-gray-700">Klantgegevens</h4>
+                        <input name="klant_naam"     value="${Utils.escapeHtml(order.klant_naam||'')}"     placeholder="Naam"        class="form-input">
+                        <input name="klant_email"    value="${Utils.escapeHtml(order.klant_email||'')}"    placeholder="Email"       class="form-input" type="email">
+                        <input name="klant_telefoon" value="${Utils.escapeHtml(order.klant_telefoon||'')}" placeholder="Telefoon"    class="form-input" type="tel">
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
+                        <h4 class="font-medium text-gray-700">Adres</h4>
+                        <div class="grid grid-cols-3 gap-2">
+                            <input name="straat"     value="${Utils.escapeHtml(order.straat||'')}"     placeholder="Straat"  class="form-input col-span-2">
+                            <input name="huisnummer" value="${Utils.escapeHtml(order.huisnummer||'')}" placeholder="Nr"      class="form-input">
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <input name="postcode" value="${Utils.escapeHtml(order.postcode||'')}" placeholder="Postcode" class="form-input">
+                            <input name="plaats"   value="${Utils.escapeHtml(order.plaats||'')}"   placeholder="Plaats"   class="form-input">
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
+                        <h4 class="font-medium text-gray-700">Product</h4>
+                        <select name="collectie" class="form-select">
+                            ${collecties.map(c => `<option value="${c}" ${order.collectie===c?'selected':''}>${c}</option>`).join('')}
+                        </select>
+                        <div class="grid grid-cols-2 gap-2">
+                            <input name="hoogte_cm"      value="${order.hoogte_cm||20}"              placeholder="Hoogte cm"  class="form-input" type="number">
+                            <input name="kleur_afwerking" value="${Utils.escapeHtml(order.kleur_afwerking||'')}" placeholder="Kleur"     class="form-input">
+                        </div>
+                        <select name="sokkel" class="form-select">
+                            <option value="Zonder"    ${order.sokkel==='Zonder'?'selected':''}>Zonder sokkel</option>
+                            <option value="Met"       ${order.sokkel==='Met'?'selected':''}>Met sokkel</option>
+                            <option value="Met én Vast" ${order.sokkel==='Met én Vast'?'selected':''}>Met én Vast</option>
+                        </select>
+                        <input name="deadline" value="${order.deadline||''}" type="date" class="form-input">
+                        <textarea name="extra_notities" placeholder="Notities" rows="3" class="form-input">${Utils.escapeHtml(order.extra_notities||'')}</textarea>
+                    </div>
+                    <button type="submit" class="w-full py-3 bg-green-500 text-white rounded-xl font-semibold">Opslaan</button>
+                </form>`,
+        });
+
+        setTimeout(() => {
+            document.getElementById('editForm')?.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const btn = e.target.querySelector('button[type="submit"]');
+                const orig = btn?.textContent;
+                if (btn) { btn.disabled = true; btn.textContent = 'Bezig...'; }
+                try {
+                    const fd = Object.fromEntries(new FormData(e.target));
+                    await OrdersModule.update(orderId, fd);
+                    UI.closeBottomSheet();
+                    UI.showToast('Order bijgewerkt', 'success');
+                    this.renderCurrentPage();
+                } catch (err) {
+                    UI.showToast(err.message || 'Fout bij bijwerken.', 'error');
+                } finally {
+                    if (btn) { btn.disabled = false; btn.textContent = orig; }
+                }
+            });
+        }, 100);
+    },
+
+    showPostNL(orderId) {
+        const order = OrdersModule.getById(orderId);
+        if (order) CommunicationsModule.showPostNLHelper(order);
+    },
+
+    // ─── TODO ACTIONS ─────────────────────────────────────────────────────────
+
     async toggleTodo(id) {
         try {
-            await TodosModule.toggle(id, this.currentUser?.id);
+            await TodosModule.toggle(id);
             this.renderCurrentPage();
-        } catch (error) {
-            UI.showToast('Fout', 'error');
+        } catch (err) {
+            UI.showToast(err.message || 'Fout', 'error');
         }
     },
 
-    // Delete todo
     async deleteTodo(id) {
         try {
             await TodosModule.delete(id);
             this.renderCurrentPage();
-        } catch (error) {
-            UI.showToast('Fout', 'error');
+        } catch (err) {
+            UI.showToast(err.message || 'Fout', 'error');
         }
     },
 
-    // Send nazorg message
+    // ─── NAZORG ───────────────────────────────────────────────────────────────
+
     sendNazorgMessage(orderId) {
         const order = OrdersModule.getById(orderId);
-        if (order) {
-            CommunicationsModule.showChoiceModal(order, 'nazorg', () => {
-                this.completeNazorg(orderId);
-            });
-        }
+        if (order) CommunicationsModule.showChoiceModal(order, 'nazorg', () => this.completeNazorg(orderId));
     },
 
-    // Complete nazorg
     async completeNazorg(orderId) {
         try {
-            await OrdersModule.updateFase(orderId, 12, this.currentUser?.id);
+            await OrdersModule.updateFase(orderId, 12);
             UI.showToast('Nazorg afgerond', 'success');
             this.renderCurrentPage();
-        } catch (error) {
-            UI.showToast('Fout', 'error');
+        } catch (err) {
+            UI.showToast(err.message || 'Fout', 'error');
         }
     },
 
-    // Get priority class
-    getPriorityClass(priority) {
-        const classes = {
-            high: 'bg-red-100 text-red-600',
-            medium: 'bg-yellow-100 text-yellow-600',
-            low: 'bg-green-100 text-green-600'
-        };
-        return classes[priority] || classes.medium;
-    },
+    // ─── QUICK FILTERS ────────────────────────────────────────────────────────
 
-    // Show delayed orders
     showDelayedOrders() {
-        const today = new Date();
-        const delayed = OrdersModule.orders.filter(o => {
-            if (!o.deadline || o.huidige_fase >= 12 || o.status === 'deleted') return false;
-            return new Date(o.deadline) < today;
-        }).sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
-
-        OrdersModule.filteredOrders = delayed;
+        const today = new Date(); today.setHours(0,0,0,0);
+        OrdersModule.filteredOrders = OrdersModule.getAll()
+            .filter(o => o.deadline && o.huidige_fase < 12 && new Date(o.deadline) < today)
+            .sort((a,b) => new Date(a.deadline) - new Date(b.deadline));
         this.navigate('orders');
-        setTimeout(() => {
-            const searchInput = document.getElementById('searchInput');
-            if (searchInput) searchInput.placeholder = `Vertraagd: ${delayed.length} orders`;
-        }, 100);
     },
 
-    // Show bronsgieterij orders
     showBronsgieterijOrders() {
-        const bronsOrders = OrdersModule.orders.filter(o => 
-            (o.huidige_fase === 13 || o.huidige_fase === 14 || o.huidige_fase === 15 || o.huidige_fase === 16) && 
-            o.status !== 'deleted'
-        );
-
-        OrdersModule.filteredOrders = bronsOrders;
+        OrdersModule.filteredOrders = OrdersModule.getAll()
+            .filter(o => [13,14,15,16].includes(o.huidige_fase));
         this.navigate('orders');
-        setTimeout(() => {
-            const searchInput = document.getElementById('searchInput');
-            if (searchInput) searchInput.placeholder = `Bronsgieterij: ${bronsOrders.length} orders`;
-        }, 100);
     },
 
-    // Show customer passport
-    showCustomerPassport(orderId) {
+    confirmDeleteAllArchived() {
+        const archived = OrdersModule.getCompleted();
+        UI.showConfirm({
+            title: 'Alle gearchiveerde orders verwijderen?',
+            message: `Dit verwijdert ${archived.length} afgeronde order(s).`,
+            confirmText: 'Alles verwijderen',
+            cancelText: 'Annuleren',
+            type: 'danger',
+            onConfirm: async () => {
+                for (const o of archived) await OrdersModule.delete(o.order_id);
+                UI.showToast(`${archived.length} orders verwijderd`, 'success');
+                this.renderCurrentPage();
+            },
+        });
+    },
+
+    closeDetail() {
+        document.getElementById('detailSheet')?.classList.remove('active');
+    },
+
+    closeConfirmModal() {
+        const m = document.getElementById('confirmModal');
+        if (m) { m.classList.add('hidden'); m.classList.remove('flex'); }
+    },
+
+    // ─── HELPERS ──────────────────────────────────────────────────────────────
+
+    _orderCard(order) {
+        const fc = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
+        const ds = Utils.getDeadlineStatus(order);
+        const wf = WORKFLOWS[getWorkflowForCollectie(order.collectie)];
+        const fases = wf?.fases || [0];
+        const ci = fases.indexOf(order.huidige_fase);
+        const pct = fases.length > 1 ? Math.round(ci / (fases.length - 1) * 100) : 0;
+        let bar = 'bg-blue-500';
+        if (pct >= 80) bar = 'bg-green-500';
+        else if (ds?.class?.includes('red')) bar = 'bg-red-500';
+        else if (ds?.class?.includes('orange')) bar = 'bg-orange-500';
+
+        return `
+        <div class="order-card" onclick="App.showOrderDetail('${order.order_id}')">
+            <div class="order-card-header">
+                <div class="flex items-center gap-3 min-w-0 flex-1">
+                    <div class="w-10 h-10 rounded-xl ${fc.color} flex items-center justify-center flex-shrink-0">
+                        <span class="text-sm font-bold text-white">${order.huidige_fase}</span>
+                    </div>
+                    <div class="min-w-0">
+                        <p class="font-semibold text-gray-900 truncate">${Utils.escapeHtml(order.klant_naam)}</p>
+                        <p class="text-xs text-gray-500">${Utils.escapeHtml(order.order_id)} · ${Utils.escapeHtml(order.collectie)}</p>
+                    </div>
+                </div>
+                <span class="text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-600 whitespace-nowrap flex-shrink-0 ml-2">${I18n.getFaseName(order.huidige_fase)}</span>
+            </div>
+            <div class="mt-3">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs text-gray-400">Voortgang</span>
+                    <span class="text-xs font-medium text-gray-600">${ci + 1}/${fases.length}</span>
+                </div>
+                <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div class="h-full ${bar} rounded-full" style="width:${pct}%"></div>
+                </div>
+            </div>
+            ${ds ? `<div class="mt-2 flex items-center gap-1.5 text-xs ${ds.class}"><i data-lucide="clock" class="w-3.5 h-3.5"></i><span>${ds.text} · ${Utils.formatDate(order.deadline)}</span></div>`
+                  : order.deadline ? `<div class="mt-2 flex items-center gap-1.5 text-xs text-gray-400"><i data-lucide="calendar" class="w-3.5 h-3.5"></i><span>Deadline: ${Utils.formatDate(order.deadline)}</span></div>` : ''}
+        </div>`;
+    },
+
+    _priorityClass(p) {
+        return { high: 'bg-red-100 text-red-600', medium: 'bg-yellow-100 text-yellow-600', low: 'bg-green-100 text-green-600' }[p] || 'bg-gray-100 text-gray-600';
+    },
+
+    // ─── PAGE: DASHBOARD ─────────────────────────────────────────────────────
+
+    _renderDashboard(c) {
+        const stats   = OrdersModule.getDashboardStats();
+        const recent  = OrdersModule.getActive().slice(0, 5);
+        const todos   = TodosModule.getByCategory();
+        const openTodo = (todos.eenmalig || []).filter(t => t.status !== 'done').slice(0, 3);
+        const activity = typeof Audit !== 'undefined' ? Audit.getRecentActivity(5) : [];
+
+        c.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Dashboard</h1>
+            <p class="page-subtitle">Welkom terug, ${Utils.escapeHtml(this.currentUser?.user_metadata?.name || 'Gebruiker')}</p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card stat-card-blue" onclick="App.navigate('orders')" style="cursor:pointer">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="stat-label">Actieve orders</span>
+                    <div class="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center"><i data-lucide="package" class="w-5 h-5 text-blue-600"></i></div>
+                </div>
+                <div class="stat-value">${stats.active}</div>
+            </div>
+            <div class="stat-card stat-card-green" onclick="App.navigate('archief')" style="cursor:pointer">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="stat-label">Verzonden</span>
+                    <div class="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center"><i data-lucide="check-circle" class="w-5 h-5 text-green-600"></i></div>
+                </div>
+                <div class="stat-value">${stats.completed}</div>
+            </div>
+            <div class="stat-card stat-card-red" onclick="App.showDelayedOrders()" style="cursor:pointer">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="stat-label">In vertraging</span>
+                    <div class="w-10 h-10 rounded-lg bg-red-100 flex items-center justify-center"><i data-lucide="alert-triangle" class="w-5 h-5 text-red-600"></i></div>
+                </div>
+                <div class="stat-value">${stats.delayed}</div>
+            </div>
+            <div class="stat-card stat-card-orange" onclick="App.showBronsgieterijOrders()" style="cursor:pointer">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="stat-label">Bij bronsgieterij</span>
+                    <div class="w-10 h-10 rounded-lg bg-orange-100 flex items-center justify-center"><i data-lucide="factory" class="w-5 h-5 text-orange-600"></i></div>
+                </div>
+                <div class="stat-value">${stats.atBronsgieterij}</div>
+            </div>
+        </div>
+
+        <div class="content-card">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="card-title">Recente Orders</h2>
+                <button class="btn-text" onclick="App.navigate('orders')">Alle orders →</button>
+            </div>
+            ${recent.length ? recent.map(o => this._orderCard(o)).join('') : '<p class="text-center py-8 text-gray-400">Geen actieve orders</p>'}
+        </div>
+
+        ${openTodo.length ? `
+        <div class="content-card">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="card-title">Openstaande Taken</h2>
+                <button class="btn-text" onclick="App.navigate('todos')">Alle taken →</button>
+            </div>
+            <div class="space-y-2">
+                ${openTodo.map(t => `
+                <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                    <button onclick="App.toggleTodo('${t.id}')" class="w-6 h-6 rounded-full border-2 border-amber-500 flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="check" class="w-4 h-4 text-amber-500"></i>
+                    </button>
+                    <span class="flex-1 text-sm">${Utils.escapeHtml(t.titel)}</span>
+                    <span class="text-xs px-2 py-0.5 rounded-lg ${this._priorityClass(t.prioriteit)}">${t.prioriteit}</span>
+                </div>`).join('')}
+            </div>
+        </div>` : ''}
+
+        ${activity.length ? `
+        <div class="content-card">
+            <h2 class="card-title mb-4">Recente Activiteit</h2>
+            <div class="space-y-3">
+                ${activity.map(a => `
+                <div class="flex items-center gap-3 text-sm">
+                    <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                        <i data-lucide="activity" class="w-4 h-4 text-gray-500"></i>
+                    </div>
+                    <div class="flex-1"><span class="text-gray-700">${a.action}</span> <span class="text-gray-500">${a.entity}</span></div>
+                    <span class="text-xs text-gray-400">${a.time}</span>
+                </div>`).join('')}
+            </div>
+        </div>` : ''}`;
+    },
+
+    // ─── PAGE: ORDERS ─────────────────────────────────────────────────────────
+
+    _renderOrders(c) {
+        const orders = OrdersModule.filteredOrders;
+        c.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Alle Orders</h1>
+            <p class="page-subtitle">${orders.length} order(s)</p>
+        </div>
+        <div class="filter-tabs mb-4">
+            <button class="filter-tab active" data-fase="all"    onclick="App.filterOrders('all')">Alle</button>
+            <button class="filter-tab"         data-fase="active" onclick="App.filterOrders('active')">Actief</button>
+            <button class="filter-tab"         data-fase="brons"  onclick="App.filterOrders('brons')">Brons</button>
+        </div>
+        <div class="space-y-3">
+            ${orders.length ? orders.map(o => this._orderCard(o)).join('') : '<p class="text-center py-12 text-gray-400">Geen orders gevonden</p>'}
+        </div>`;
+    },
+
+    // ─── PAGE: ARCHIEF ────────────────────────────────────────────────────────
+
+    _renderArchief(c) {
+        const completed = OrdersModule.getCompleted()
+            .sort((a,b) => new Date(b.afgerond_datum||b.updated_at) - new Date(a.afgerond_datum||a.updated_at));
+        c.innerHTML = `
+        <div class="page-header">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h1 class="page-title">Archief</h1>
+                    <p class="page-subtitle">${completed.length} afgeronde orders</p>
+                </div>
+                ${completed.length ? `<button onclick="App.confirmDeleteAllArchived()" class="text-red-500 text-sm font-medium px-3 py-2">Alles wissen</button>` : ''}
+            </div>
+        </div>
+        <div class="space-y-3">
+            ${completed.length ? completed.map(o => this._orderCard(o)).join('') : '<p class="text-center py-12 text-gray-400">Geen afgeronde orders</p>'}
+        </div>`;
+    },
+
+    // ─── PAGE: NAZORG ─────────────────────────────────────────────────────────
+
+    _renderNazorg(c) {
+        const orders = OrdersModule.getNazorgOrders();
+        c.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Nazorg</h1>
+            <p class="page-subtitle">Orders in nazorg fase</p>
+        </div>
+        <div class="space-y-3">
+            ${orders.length ? orders.map(o => {
+                const pink = OrdersModule.getNazorgColor(o) === 'pink';
+                return `
+                <div class="order-card border-l-4 ${pink ? 'border-pink-500' : 'border-blue-500'}">
+                    <div class="order-card-header">
+                        <div>
+                            <p class="font-semibold">${Utils.escapeHtml(o.klant_naam)}</p>
+                            <p class="text-sm text-gray-500">${o.order_id}</p>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded-lg ${pink ? 'bg-pink-100 text-pink-600' : 'bg-blue-100 text-blue-600'}">${pink ? '4+ dagen' : 'Recent'}</span>
+                    </div>
+                    <div class="mt-3 grid grid-cols-2 gap-2">
+                        <button onclick="App.sendNazorgMessage('${o.order_id}')" class="py-2 bg-green-500 text-white rounded-xl text-sm font-medium">WhatsApp</button>
+                        <button onclick="App.completeNazorg('${o.order_id}')" class="py-2 bg-gray-100 text-gray-700 rounded-xl text-sm">Afronden</button>
+                    </div>
+                </div>`;
+            }).join('') : '<p class="text-center py-12 text-gray-400">Geen orders in nazorg</p>'}
+        </div>`;
+    },
+
+    // ─── PAGE: TODOS ──────────────────────────────────────────────────────────
+
+    _renderTodos(c) {
+        const groups = TodosModule.getByCategory();
+        const cats = [
+            { key: 'dagelijks', label: 'Dagelijks' },
+            { key: 'wekelijks', label: 'Wekelijks' },
+            { key: 'maandelijks', label: 'Maandelijks' },
+            { key: 'eenmalig', label: 'Eenmalig' },
+        ];
+
+        c.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Taken</h1>
+            <p class="page-subtitle">${TodosModule.getOpenCount()} openstaand</p>
+        </div>
+        <div class="content-card mb-4">
+            <form id="addTodoForm" class="flex flex-col sm:flex-row gap-2">
+                <input id="todoTitle" placeholder="Nieuwe taak..." class="flex-1 px-4 py-3 border border-gray-200 rounded-xl focus:border-amber-500 outline-none text-sm">
+                <div class="flex gap-2">
+                    <select id="todoCat" class="px-4 py-3 border border-gray-200 rounded-xl bg-white text-sm">
+                        ${cats.map(c => `<option value="${c.key}">${c.label}</option>`).join('')}
+                    </select>
+                    <button type="submit" class="px-5 py-3 bg-amber-500 text-white rounded-xl font-medium whitespace-nowrap text-sm">+ Voeg toe</button>
+                </div>
+            </form>
+        </div>
+        ${cats.map(cat => {
+            const items = groups[cat.key] || [];
+            return `
+            <div class="content-card mb-4">
+                <h3 class="font-semibold text-gray-700 mb-3">${cat.label}</h3>
+                <div class="space-y-2">
+                    ${items.length ? items.map(t => `
+                    <div class="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                        <button onclick="App.toggleTodo('${t.id}')" class="w-6 h-6 rounded-full border-2 border-amber-500 flex items-center justify-center flex-shrink-0 hover:bg-amber-50">
+                            <i data-lucide="check" class="w-4 h-4 text-amber-500"></i>
+                        </button>
+                        <span class="flex-1 text-sm">${Utils.escapeHtml(t.titel)}</span>
+                        <span class="text-xs px-2 py-0.5 rounded ${this._priorityClass(t.prioriteit)}">${t.prioriteit}</span>
+                        <button onclick="App.deleteTodo('${t.id}')" class="text-gray-400 hover:text-red-500 ml-1">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>`).join('') : '<p class="text-center py-4 text-gray-400 text-sm">Geen taken</p>'}
+                </div>
+            </div>`;
+        }).join('')}`;
+
+        document.getElementById('addTodoForm')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const title = document.getElementById('todoTitle').value.trim();
+            const cat   = document.getElementById('todoCat').value;
+            if (!title) return;
+            try {
+                await TodosModule.create(title, cat);
+                UI.showToast('Taak toegevoegd', 'success');
+                this._renderTodos(c);
+            } catch (err) {
+                UI.showToast(err.message || 'Fout', 'error');
+            }
+        });
+    },
+
+    // ─── PAGE: TIME ───────────────────────────────────────────────────────────
+
+    _renderTime(c) {
+        const stats = typeof TimeModule !== 'undefined' ? TimeModule.getStats(this.currentUser?.id) : { today: 0, week: 0, month: 0 };
+        const perMed = typeof TimeModule !== 'undefined' ? TimeModule.getPerMedewerker() : {};
+
+        c.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Tijdregistratie</h1>
+        </div>
+        <div class="stats-grid mb-4">
+            <div class="stat-card"><span class="stat-label">Vandaag</span><div class="stat-value text-2xl">${Utils.formatTime(stats.today)}</div></div>
+            <div class="stat-card"><span class="stat-label">Deze week</span><div class="stat-value text-2xl">${Utils.formatTime(stats.week)}</div></div>
+            <div class="stat-card"><span class="stat-label">Deze maand</span><div class="stat-value text-2xl">${Utils.formatTime(stats.month)}</div></div>
+        </div>
+        <div class="content-card mb-4">
+            <h3 class="card-title mb-4">Tijd registreren</h3>
+            <form id="timeForm" class="space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <input type="date" id="tDate"  required class="form-input">
+                    <input type="time" id="tStart" required class="form-input" placeholder="Start">
+                    <input type="time" id="tEind"  required class="form-input" placeholder="Eind">
+                    <input type="number" id="tPauze" placeholder="Pauze (min)" min="0" class="form-input">
+                </div>
+                <input type="text" id="tNote" placeholder="Opmerking (optioneel)" class="form-input w-full">
+                <button type="submit" class="w-full py-3 bg-amber-500 text-white rounded-xl font-semibold">Registreren</button>
+            </form>
+        </div>
+        ${Object.keys(perMed).length ? `
+        <div class="content-card">
+            <h3 class="card-title mb-4">Per medewerker</h3>
+            <div class="space-y-3">
+                ${Object.values(perMed).map(m => `
+                <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
+                    <div><p class="font-medium">${Utils.escapeHtml(m.naam)}</p><p class="text-xs text-gray-500">${m.approved} registraties</p></div>
+                    <div class="text-right"><p class="font-semibold">${Utils.formatTime(m.dezeMaandMinuten)}</p><p class="text-xs text-gray-500">deze maand</p></div>
+                </div>`).join('')}
+            </div>
+        </div>` : ''}`;
+
+        document.getElementById('tDate').valueAsDate = new Date();
+
+        document.getElementById('timeForm')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const naam = this.currentUser?.user_metadata?.name || 'Onbekend';
+            try {
+                await TimeModule.create(
+                    document.getElementById('tDate').value,
+                    document.getElementById('tStart').value,
+                    document.getElementById('tEind').value,
+                    parseInt(document.getElementById('tPauze').value) || 0,
+                    document.getElementById('tNote').value,
+                    naam,
+                );
+                UI.showToast('Tijd geregistreerd', 'success');
+                this._renderTime(c);
+            } catch (err) {
+                UI.showToast(err.message || 'Fout bij registreren', 'error');
+            }
+        });
+    },
+
+    // ─── PAGE: SCHEMA ─────────────────────────────────────────────────────────
+
+    _renderSchema(c) {
+        const active = OrdersModule.getActive();
+        const sections = [
+            { key: 'standard',      label: 'Standaard Workflow' },
+            { key: 'atelier_bronze', label: 'Atelier Bronze (Lemarez)' },
+            { key: 'gegoten_brons', label: 'Gegoten Brons' },
+        ].map(({ key, label }) => {
+            const orders = active.filter(o => getWorkflowForCollectie(o.collectie) === key);
+            if (!orders.length) return '';
+            const wf = WORKFLOWS[key];
+            return `
+            <div class="content-card mb-4">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <h3 class="font-semibold text-gray-800">${label}</h3>
+                        <p class="text-sm text-gray-500">${orders.length} orders · ${wf.duration}</p>
+                    </div>
+                </div>
+                <div class="space-y-2">
+                    ${orders.map(o => {
+                        const ci = wf.fases.indexOf(o.huidige_fase);
+                        return `
+                        <div class="flex items-center gap-2 p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100"
+                             onclick="App.showOrderDetail('${o.order_id}')">
+                            <div class="w-28 flex-shrink-0">
+                                <p class="font-medium text-sm truncate">${Utils.escapeHtml(o.klant_naam)}</p>
+                                <p class="text-xs text-gray-500">${o.order_id}</p>
+                            </div>
+                            <div class="flex-1 flex gap-0.5">
+                                ${wf.fases.map((f, idx) => {
+                                    const done = idx < ci, cur = idx === ci;
+                                    const fc = FASES_CONFIG[f];
+                                    return `<div class="flex-1 h-5 rounded ${done ? 'bg-green-500' : cur ? fc.color + ' ring-1 ring-amber-400' : 'bg-gray-200'}" title="${fc.name}"></div>`;
+                                }).join('')}
+                            </div>
+                            <span class="text-xs text-gray-500 w-8 text-center">${ci + 1}/${wf.fases.length}</span>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>`;
+        }).join('');
+
+        c.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Productie Schema</h1>
+            <p class="page-subtitle">Overzicht alle workflows</p>
+        </div>
+        ${sections || '<p class="text-center py-12 text-gray-400">Geen actieve orders</p>'}`;
+    },
+
+    // ─── PAGE: ANALYTICS ──────────────────────────────────────────────────────
+
+    _renderAnalytics(c) {
+        const all  = OrdersModule.getAll();
+        const done = OrdersModule.getCompleted();
+        const act  = OrdersModule.getActive();
+
+        const perCol = {};
+        all.forEach(o => { perCol[o.collectie] = (perCol[o.collectie]||0) + 1; });
+        const colList = Object.entries(perCol).sort((a,b) => b[1]-a[1]);
+
+        const now = new Date();
+        const months = {};
+        for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            months[d.toLocaleString('nl',{month:'short',year:'2-digit'})] = 0;
+        }
+        done.forEach(o => {
+            const d = new Date(o.updated_at||o.created_at);
+            const k = d.toLocaleString('nl',{month:'short',year:'2-digit'});
+            if (months[k] !== undefined) months[k]++;
+        });
+        const maxM = Math.max(...Object.values(months), 1);
+
+        c.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Analytics</h1>
+            <p class="page-subtitle">Productie statistieken</p>
+        </div>
+        <div class="stats-grid mb-4">
+            <div class="stat-card stat-card-blue"><span class="stat-label">Totaal</span><div class="stat-value">${all.length}</div></div>
+            <div class="stat-card stat-card-green"><span class="stat-label">Afgerond</span><div class="stat-value">${done.length}</div></div>
+            <div class="stat-card stat-card-orange"><span class="stat-label">Actief</span><div class="stat-value">${act.length}</div></div>
+            <div class="stat-card stat-card-red"><span class="stat-label">% Afgerond</span><div class="stat-value">${all.length ? Math.round(done.length/all.length*100) : 0}%</div></div>
+        </div>
+        <div class="content-card mb-4">
+            <h3 class="card-title mb-4">Afgerond per maand</h3>
+            <div class="flex items-end gap-2 h-32">
+                ${Object.entries(months).map(([m, n]) => `
+                <div class="flex-1 flex flex-col items-center gap-1">
+                    <span class="text-xs font-medium text-gray-700">${n}</span>
+                    <div class="w-full bg-amber-500 rounded-t-lg" style="height:${Math.max(4, Math.round(n/maxM*96))}px"></div>
+                    <span class="text-xs text-gray-400 whitespace-nowrap">${m}</span>
+                </div>`).join('')}
+            </div>
+        </div>
+        <div class="content-card">
+            <h3 class="card-title mb-4">Orders per collectie</h3>
+            <div class="space-y-3">
+                ${colList.map(([name, n]) => `
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <span class="text-sm font-medium text-gray-700">${Utils.escapeHtml(name)}</span>
+                        <span class="text-sm font-bold">${n}</span>
+                    </div>
+                    <div class="h-2 bg-gray-100 rounded-full">
+                        <div class="h-full bg-amber-500 rounded-full" style="width:${Math.round(n/all.length*100)}%"></div>
+                    </div>
+                </div>`).join('')}
+            </div>
+        </div>`;
+    },
+
+    // ─── PAGE: SETTINGS ───────────────────────────────────────────────────────
+
+    _renderSettings(c) {
+        c.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Instellingen</h1>
+        </div>
+        <div class="content-card mb-4">
+            <div class="flex items-center justify-between py-3 border-b">
+                <div>
+                    <p class="font-medium">Ingelogd als</p>
+                    <p class="text-sm text-gray-500">${Utils.escapeHtml(this.currentUser?.user_metadata?.name||'')} · ${Utils.escapeHtml(this.currentUser?.user_metadata?.role||'')}</p>
+                </div>
+            </div>
+            <div class="flex items-center justify-between py-3 border-b">
+                <div>
+                    <p class="font-medium">Taal</p>
+                    <p class="text-sm text-gray-500">Voorkeurstaal</p>
+                </div>
+                <select id="langSelect" class="px-4 py-2 border border-gray-200 rounded-lg text-sm">
+                    <option value="nl" ${I18n.getLanguage()==='nl'?'selected':''}>Nederlands</option>
+                    <option value="en" ${I18n.getLanguage()==='en'?'selected':''}>English</option>
+                </select>
+            </div>
+            <div class="py-3">
+                <p class="font-medium mb-1">App Info</p>
+                <p class="text-sm text-gray-500">Versie ${CONFIG.VERSION}</p>
+                <p class="text-sm text-gray-500">© Babycrafts Atelier</p>
+            </div>
+        </div>
+        <button onclick="App.logout()" class="w-full py-3 bg-red-500 text-white rounded-xl font-semibold">Uitloggen</button>`;
+
+        document.getElementById('langSelect')?.addEventListener('change', (e) => {
+            I18n.setLanguage(e.target.value);
+            UI.showToast('Taal gewijzigd', 'success');
+        });
+    },
+
+    // ─── DETAIL SHEETS ────────────────────────────────────────────────────────
+
+    showOrderDetail(orderId) {
         const order = OrdersModule.getById(orderId);
         if (!order) return;
 
-        const faseConfig = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
-        const phone = order.klant_telefoon ? order.klant_telefoon.replace(/\D/g, '') : '';
-        const whatsappLink = phone ? `https://wa.me/31${phone.replace(/^0/, '')}` : null;
+        const fc = FASES_CONFIG[order.huidige_fase] || FASES_CONFIG[0];
+        const canAdv = OrdersModule.canAdvance(order);
+        const advTxt = OrdersModule.getAdvanceButtonText(order);
+        const ds = Utils.getDeadlineStatus(order);
+        const wf = WORKFLOWS[getWorkflowForCollectie(order.collectie)];
+        const fases = wf?.fases || [0];
+        const ci = fases.indexOf(order.huidige_fase);
+
+        UI.showBottomSheet({
+            title: `Order ${orderId}`,
+            content: `
+            <div class="space-y-4">
+                <div class="flex items-center gap-3 p-4 bg-gradient-to-r from-amber-50 to-orange-50 rounded-2xl border border-amber-100">
+                    <div class="w-12 h-12 rounded-full bg-amber-500 text-white flex items-center justify-center text-lg font-bold flex-shrink-0">
+                        ${order.klant_naam.charAt(0).toUpperCase()}
+                    </div>
+                    <div class="min-w-0 flex-1">
+                        <p class="font-bold text-gray-900">${Utils.escapeHtml(order.klant_naam)}</p>
+                        <p class="text-sm text-gray-500 truncate">${Utils.escapeHtml(order.klant_email||'')}</p>
+                        ${order.klant_telefoon ? `<p class="text-sm text-gray-500">${Utils.escapeHtml(order.klant_telefoon)}</p>` : ''}
+                    </div>
+                    <button onclick="App.showCustomerPassport('${orderId}')" class="p-2 bg-white rounded-xl border border-gray-200 flex-shrink-0">
+                        <i data-lucide="user" class="w-4 h-4 text-gray-500"></i>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2">
+                    <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400 mb-0.5">Collectie</p><p class="font-semibold text-sm">${Utils.escapeHtml(order.collectie)}</p></div>
+                    <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400 mb-0.5">Hoogte</p><p class="font-semibold text-sm">${order.hoogte_cm} cm</p></div>
+                    <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400 mb-0.5">Sokkel</p><p class="font-semibold text-sm">${order.sokkel||'Zonder'}</p></div>
+                    <div class="bg-gray-50 rounded-xl p-3 ${ds?.class||''}">
+                        <p class="text-xs text-gray-400 mb-0.5">Deadline</p>
+                        <p class="font-semibold text-sm">${Utils.formatDate(order.deadline)}</p>
+                        ${ds ? `<p class="text-xs">${ds.text}</p>` : ''}
+                    </div>
+                </div>
+
+                <div class="p-3 rounded-xl border-l-4 ${fc.color.replace('bg-','border-')} bg-gray-50">
+                    <p class="text-xs text-gray-500 mb-0.5">Fase ${ci+1} van ${fases.length}</p>
+                    <p class="font-bold ${fc.text}">${I18n.getFaseName(order.huidige_fase)}</p>
+                </div>
+
+                <div class="overflow-x-auto pb-1">
+                    <div class="flex items-center gap-1 min-w-max">
+                        ${fases.map((f, idx) => {
+                            const ffc = FASES_CONFIG[f];
+                            const done = idx < ci, cur = idx === ci;
+                            return `<div class="flex items-center">
+                                <div class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${done?'bg-green-500 text-white':cur?ffc.color+' text-white ring-2 ring-amber-400 ring-offset-1':'bg-gray-100 text-gray-400'}" title="${ffc.name}">${done?'✓':f}</div>
+                                ${idx < fases.length-1 ? '<div class="w-3 h-0.5 bg-gray-200 mx-0.5"></div>' : ''}
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>
+
+                ${order.extra_notities ? `<div class="p-3 bg-yellow-50 rounded-xl border border-yellow-100"><p class="text-xs font-medium text-yellow-700 mb-1">Notities</p><p class="text-sm text-gray-700">${Utils.escapeHtml(order.extra_notities)}</p></div>` : ''}
+
+                <div class="space-y-2">
+                    <button onclick="App.advanceOrder('${orderId}')"
+                            class="w-full py-3.5 font-semibold rounded-xl text-white transition-colors ${canAdv.can?'bg-green-500 hover:bg-green-600':'bg-gray-300 cursor-not-allowed'}"
+                            ${canAdv.can?'':'disabled'}>
+                        ${advTxt}
+                    </button>
+                    ${order.huidige_fase === 9 ? `<button onclick="App.showPostNL('${orderId}')" class="w-full py-3 bg-[#003366] text-white rounded-xl font-medium">📦 PostNL Pakket</button>` : ''}
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="App.showProductionSchema('${orderId}')" class="py-2.5 bg-blue-50 text-blue-600 rounded-xl text-sm font-medium">📋 Schema</button>
+                        <button onclick="App.editOrder('${orderId}')" class="py-2.5 bg-amber-50 text-amber-700 rounded-xl text-sm font-medium">✏️ Bewerken</button>
+                        <button onclick="App.deleteOrder('${orderId}')" class="py-2.5 bg-red-50 text-red-600 rounded-xl text-sm font-medium">🗑️ Wissen</button>
+                    </div>
+                </div>
+            </div>`,
+        });
+    },
+
+    showCustomerPassport(orderId) {
+        const order = OrdersModule.getById(orderId);
+        if (!order) return;
+        const phone = (order.klant_telefoon || '').replace(/\D/g,'');
+        const wa = phone ? `https://wa.me/31${phone.replace(/^0/,'')}` : null;
 
         UI.showBottomSheet({
             title: 'Klant Paspoort',
             content: `
-                <div class="space-y-4">
-                    <!-- Klant Info Card -->
-                    <div class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-5 border border-amber-100">
-                        <div class="flex items-center gap-4 mb-4">
-                            <div class="w-16 h-16 rounded-full bg-amber-500 text-white flex items-center justify-center text-2xl font-bold">
-                                ${order.klant_naam.charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                                <h3 class="font-bold text-lg text-gray-900">${Utils.escapeHtml(order.klant_naam)}</h3>
-                                <p class="text-sm text-gray-500">${Utils.escapeHtml(order.order_id)}</p>
-                            </div>
+            <div class="space-y-4">
+                <div class="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl p-5 border border-amber-100">
+                    <div class="flex items-center gap-4 mb-4">
+                        <div class="w-16 h-16 rounded-full bg-amber-500 text-white flex items-center justify-center text-2xl font-bold">
+                            ${order.klant_naam.charAt(0).toUpperCase()}
                         </div>
-                        
-                        <div class="space-y-2 text-sm">
-                            ${order.klant_email ? `
-                                <div class="flex items-center gap-2">
-                                    <i data-lucide="mail" class="w-4 h-4 text-gray-400"></i>
-                                    <a href="mailto:${order.klant_email}" class="text-amber-600">${Utils.escapeHtml(order.klant_email)}</a>
-                                </div>
-                            ` : ''}
-                            ${order.klant_telefoon ? `
-                                <div class="flex items-center gap-2">
-                                    <i data-lucide="phone" class="w-4 h-4 text-gray-400"></i>
-                                    <span>${Utils.escapeHtml(order.klant_telefoon)}</span>
-                                </div>
-                            ` : ''}
+                        <div>
+                            <h3 class="font-bold text-lg text-gray-900">${Utils.escapeHtml(order.klant_naam)}</h3>
+                            <p class="text-sm text-gray-500">${order.order_id}</p>
                         </div>
                     </div>
-
-                    <!-- Adres -->
-                    ${order.straat ? `
-                        <div class="bg-gray-50 rounded-xl p-4">
-                            <h4 class="font-semibold text-sm text-gray-700 mb-2">Adres</h4>
-                            <p class="text-sm">${Utils.escapeHtml(order.straat)} ${Utils.escapeHtml(order.huisnummer || '')}</p>
-                            <p class="text-sm">${Utils.escapeHtml(order.postcode || '')} ${Utils.escapeHtml(order.plaats || '')}</p>
-                        </div>
-                    ` : ''}
-
-                    <!-- Order Details -->
-                    <div class="bg-gray-50 rounded-xl p-4">
-                        <h4 class="font-semibold text-sm text-gray-700 mb-3">Order Details</h4>
-                        <div class="grid grid-cols-2 gap-3 text-sm">
-                            <div>
-                                <span class="text-gray-500">Collectie</span>
-                                <p class="font-medium">${Utils.escapeHtml(order.collectie)}</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-500">Hoogte</span>
-                                <p class="font-medium">${order.hoogte_cm}cm</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-500">Sokkel</span>
-                                <p class="font-medium">${order.sokkel || 'Zonder'}</p>
-                            </div>
-                            <div>
-                                <span class="text-gray-500">Kleur</span>
-                                <p class="font-medium">${order.kleur_afwerking || 'Standaard'}</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Status -->
-                    <div class="${faseConfig.color} bg-opacity-10 rounded-xl p-4 border-l-4 ${faseConfig.color.replace('bg-', 'border-')}">
-                        <span class="text-xs text-gray-500 uppercase tracking-wide">Huidige Status</span>
-                        <p class="font-semibold ${faseConfig.text} text-lg mt-1">${I18n.getFaseName(order.huidige_fase)}</p>
-                        ${order.deadline ? `<p class="text-xs text-gray-500 mt-1">Deadline: ${Utils.formatDate(order.deadline)}</p>` : ''}
-                    </div>
-
-                    <!-- WhatsApp Button -->
-                    ${whatsappLink ? `
-                        <a href="${whatsappLink}" target="_blank" class="flex items-center justify-center gap-2 w-full py-3 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 transition-colors">
-                            <i data-lucide="message-circle" class="w-5 h-5"></i>
-                            WhatsApp Bericht Sturen
-                        </a>
-                    ` : '<p class="text-center text-gray-400 text-sm">Geen telefoonnummer beschikbaar voor WhatsApp</p>'}
-
-                    <!-- Acties -->
-                    <div class="grid grid-cols-2 gap-3">
-                        <button onclick="App.showOrderDetail('${orderId}')" class="py-3 bg-gray-100 text-gray-700 rounded-xl font-medium">
-                            Order Details
-                        </button>
-                        <button onclick="App.editOrder('${orderId}')" class="py-3 bg-amber-100 text-amber-700 rounded-xl font-medium">
-                            Bewerken
-                        </button>
+                    <div class="space-y-2 text-sm">
+                        ${order.klant_email ? `<div class="flex items-center gap-2"><i data-lucide="mail" class="w-4 h-4 text-gray-400"></i><a href="mailto:${order.klant_email}" class="text-amber-600">${Utils.escapeHtml(order.klant_email)}</a></div>` : ''}
+                        ${order.klant_telefoon ? `<div class="flex items-center gap-2"><i data-lucide="phone" class="w-4 h-4 text-gray-400"></i><span>${Utils.escapeHtml(order.klant_telefoon)}</span></div>` : ''}
+                        ${order.straat ? `<div class="flex items-center gap-2"><i data-lucide="map-pin" class="w-4 h-4 text-gray-400"></i><span>${Utils.escapeHtml(order.straat)} ${Utils.escapeHtml(order.huisnummer||'')}, ${Utils.escapeHtml(order.postcode||'')} ${Utils.escapeHtml(order.plaats||'')}</span></div>` : ''}
                     </div>
                 </div>
-            `
+                <div class="bg-gray-50 rounded-xl p-4 grid grid-cols-2 gap-3 text-sm">
+                    <div><span class="text-gray-400">Collectie</span><p class="font-medium">${Utils.escapeHtml(order.collectie)}</p></div>
+                    <div><span class="text-gray-400">Hoogte</span><p class="font-medium">${order.hoogte_cm} cm</p></div>
+                    <div><span class="text-gray-400">Sokkel</span><p class="font-medium">${order.sokkel||'Zonder'}</p></div>
+                    <div><span class="text-gray-400">Kleur</span><p class="font-medium">${order.kleur_afwerking||'Standaard'}</p></div>
+                </div>
+                ${wa ? `<a href="${wa}" target="_blank" class="flex items-center justify-center gap-2 w-full py-3 bg-green-500 text-white rounded-xl font-medium"><i data-lucide="message-circle" class="w-5 h-5"></i>WhatsApp Sturen</a>` : ''}
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="App.showOrderDetail('${orderId}')" class="py-3 bg-gray-100 text-gray-700 rounded-xl font-medium">Order Details</button>
+                    <button onclick="App.editOrder('${orderId}')" class="py-3 bg-amber-100 text-amber-700 rounded-xl font-medium">Bewerken</button>
+                </div>
+            </div>`,
         });
     },
 
-    // Edit order
-    editOrder(orderId) {
-        const order = OrdersModule.getById(orderId);
-        if (!order) return;
-
-        const collecties = ['Figura', 'Arte-Lumina', 'Natura-Alba', 'Ouder & Kind', 'Babybeeld', 'Atelier-Bronze', 'Gegoten Brons', 'Aangepast'];
-        
-        UI.showBottomSheet({
-            title: `Bewerk ${orderId}`,
-            content: `
-                <form id="editOrderForm" class="space-y-4 max-h-[60vh] overflow-y-auto p-1">
-                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
-                        <h4 class="font-medium text-gray-700">Klantgegevens</h4>
-                        <input type="text" name="klant_naam" value="${Utils.escapeHtml(order.klant_naam || '')}" placeholder="Naam klant" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                        <input type="email" name="klant_email" value="${Utils.escapeHtml(order.klant_email || '')}" placeholder="Email" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                        <input type="tel" name="klant_telefoon" value="${Utils.escapeHtml(order.klant_telefoon || '')}" placeholder="Telefoonnummer" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                    </div>
-                    
-                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
-                        <h4 class="font-medium text-gray-700">Adres</h4>
-                        <div class="grid grid-cols-3 gap-2">
-                            <input type="text" name="straat" value="${Utils.escapeHtml(order.straat || '')}" placeholder="Straat" class="col-span-2 w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                            <input type="text" name="huisnummer" value="${Utils.escapeHtml(order.huisnummer || '')}" placeholder="Nr" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <input type="text" name="postcode" value="${Utils.escapeHtml(order.postcode || '')}" placeholder="Postcode" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm uppercase focus:outline-none focus:ring-2 focus:ring-primary-500">
-                            <input type="text" name="plaats" value="${Utils.escapeHtml(order.plaats || '')}" placeholder="Plaats" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                        </div>
-                    </div>
-                    
-                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
-                        <h4 class="font-medium text-gray-700">Product Details</h4>
-                        <select name="collectie" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                            ${collecties.map(c => `<option value="${c}" ${order.collectie === c ? 'selected' : ''}>${c}</option>`).join('')}
-                        </select>
-                        <div class="grid grid-cols-2 gap-2">
-                            <input type="number" name="hoogte_cm" value="${order.hoogte_cm || 20}" placeholder="Hoogte cm" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                            <input type="text" name="kleur_afwerking" value="${Utils.escapeHtml(order.kleur_afwerking || '')}" placeholder="Kleur afwerking" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                        </div>
-                        <select name="sokkel" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                            <option value="Met" ${order.sokkel === 'Met' ? 'selected' : ''}>Met sokkel</option>
-                            <option value="Zonder" ${order.sokkel === 'Zonder' ? 'selected' : ''}>Zonder sokkel</option>
-                        </select>
-                    </div>
-                    
-                    <div class="bg-gray-50 rounded-xl p-4 space-y-3">
-                        <h4 class="font-medium text-gray-700">Overige</h4>
-                        <input type="date" name="deadline" value="${order.deadline || ''}" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
-                        <textarea name="extra_notities" placeholder="Extra notities" rows="3" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">${Utils.escapeHtml(order.extra_notities || '')}</textarea>
-                    </div>
-                    
-                    <button type="submit" class="w-full py-3 bg-green-500 text-white rounded-xl font-medium hover:bg-green-600 transition-colors">
-                        Wijzigingen Opslaan
-                    </button>
-                </form>
-            `
-        });
-        
-        // Add submit handler
-        setTimeout(() => {
-            document.getElementById('editOrderForm')?.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const formData = Object.fromEntries(new FormData(e.target));
-                
-                // Convert hoogte_cm to number
-                formData.hoogte_cm = parseInt(formData.hoogte_cm) || 20;
-                
-                try {
-                    await OrdersModule.update(orderId, formData, this.currentUser?.id);
-                    UI.closeBottomSheet();
-                    UI.showToast('Order bijgewerkt', 'success');
-                    this.renderCurrentPage();
-                } catch (error) {
-                    const errorMsg = window.lastRepositoryError?.message || error.message || 'Fout bij bijwerken order';
-                    UI.showToast(errorMsg, 'error', 5000);
-                }
-            });
-        }, 100);
-    },
-
-    // Show production schema (timeline)
     showProductionSchema(orderId) {
         const order = OrdersModule.getById(orderId);
         if (!order) return;
-
         const workflow = getWorkflowForCollectie(order.collectie);
-        const workflowConfig = WORKFLOWS[workflow];
-        const fases = workflowConfig.fases;
-        const currentIndex = fases.indexOf(order.huidige_fase);
-        
-        // Build timeline HTML
-        let timelineHtml = '';
-        fases.forEach((faseNum, index) => {
-            const faseConfig = FASES_CONFIG[faseNum];
-            const isCompleted = index < currentIndex;
-            const isCurrent = index === currentIndex;
-            const isFuture = index > currentIndex;
-            
-            let statusIcon = '';
-            let statusClass = '';
-            
-            if (isCompleted) {
-                statusIcon = '✓';
-                statusClass = 'bg-green-500 text-white';
-            } else if (isCurrent) {
-                statusIcon = '●';
-                statusClass = `${faseConfig.color} text-white ring-4 ring-opacity-30 ${faseConfig.color}`;
-            } else {
-                statusIcon = '○';
-                statusClass = 'bg-gray-200 text-gray-400';
-            }
-            
-            timelineHtml += `
-                <div class="flex items-start gap-4 ${isFuture ? 'opacity-50' : ''}">
-                    <div class="flex flex-col items-center">
-                        <div class="w-10 h-10 rounded-full ${statusClass} flex items-center justify-center font-bold text-sm shadow-sm">
-                            ${statusIcon}
-                        </div>
-                        ${index < fases.length - 1 ? `<div class="w-0.5 h-12 bg-gray-200 mt-1"></div>` : ''}
+        const wfc = WORKFLOWS[workflow];
+        const fases = wfc.fases;
+        const ci = fases.indexOf(order.huidige_fase);
+
+        const timeline = fases.map((f, idx) => {
+            const fc = FASES_CONFIG[f];
+            const done = idx < ci, cur = idx === ci, fut = idx > ci;
+            let cls = done ? 'bg-green-500 text-white' : cur ? `${fc.color} text-white ring-4 ring-opacity-30` : 'bg-gray-200 text-gray-400';
+            return `
+            <div class="flex items-start gap-4 ${fut?'opacity-50':''}">
+                <div class="flex flex-col items-center">
+                    <div class="w-10 h-10 rounded-full ${cls} flex items-center justify-center font-bold text-sm shadow-sm">
+                        ${done?'✓':cur?'●':'○'}
                     </div>
-                    <div class="flex-1 pb-8">
-                        <p class="font-medium ${isCurrent ? faseConfig.text : 'text-gray-700'}">${faseConfig.name}</p>
-                        ${faseConfig.duration ? `<p class="text-xs text-gray-500">${faseConfig.duration}</p>` : ''}
-                        ${isCurrent ? `<p class="text-xs font-medium ${faseConfig.text} mt-1">← Huidige fase</p>` : ''}
-                    </div>
+                    ${idx < fases.length-1 ? '<div class="w-0.5 h-10 bg-gray-200 mt-1"></div>' : ''}
                 </div>
-            `;
-        });
+                <div class="flex-1 pb-6">
+                    <p class="font-medium ${cur?fc.text:'text-gray-700'}">${fc.name}</p>
+                    ${fc.duration ? `<p class="text-xs text-gray-500">${fc.duration}</p>` : ''}
+                    ${cur ? `<p class="text-xs font-medium ${fc.text} mt-1">← Huidige fase</p>` : ''}
+                </div>
+            </div>`;
+        }).join('');
 
         UI.showBottomSheet({
             title: '📋 Productieschema',
             content: `
-                <div class="space-y-4">
-                    <div class="bg-primary-50 rounded-xl p-4">
-                        <p class="font-medium text-primary-800">${Utils.escapeHtml(order.klant_naam)}</p>
-                        <p class="text-sm text-primary-600">${order.order_id} • ${order.collectie}</p>
-                        <p class="text-xs text-primary-500 mt-1">Workflow: ${workflowConfig.name}</p>
-                    </div>
-                    
-                    <div class="pl-2">
-                        ${timelineHtml}
-                    </div>
-                    
-                    <div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
-                        <p class="font-medium mb-1">Duur: ${workflowConfig.duration}</p>
-                        <p>Fase ${currentIndex + 1} van ${fases.length}</p>
-                    </div>
+            <div class="space-y-4">
+                <div class="bg-primary-50 rounded-xl p-4">
+                    <p class="font-medium text-primary-800">${Utils.escapeHtml(order.klant_naam)}</p>
+                    <p class="text-sm text-primary-600">${order.order_id} · ${order.collectie}</p>
+                    <p class="text-xs text-primary-500 mt-1">Workflow: ${wfc.name} · ${wfc.duration}</p>
                 </div>
-            `
+                <div class="pl-2">${timeline}</div>
+                <div class="bg-gray-50 rounded-xl p-4 text-sm text-gray-600">
+                    <p>Fase ${ci+1} van ${fases.length}</p>
+                </div>
+            </div>`,
         });
     },
 
-    // ==================== PUSH NOTIFICATIONS ====================
-    
-    // Initialize push notifications
-    initPushNotifications() {
-        // Check if service workers are supported
-        if ('serviceWorker' in navigator && 'PushManager' in window) {
-            this.registerServiceWorker();
-        }
-        
-        // Check for daily highlights on load
-        this.checkDailyHighlights();
-        
-        // Schedule next check
-        this.scheduleDailyCheck();
-    },
-    
-    // Register service worker for notifications
-    async registerServiceWorker() {
-        try {
-            await navigator.serviceWorker.register('/sw.js');
-        } catch (error) {
-            // Service worker not available in this environment
-        }
-    },
-    
-    // Request notification permission
-    async requestNotificationPermission() {
-        if (!('Notification' in window)) {
-            UI.showToast('Notificaties worden niet ondersteund op dit apparaat', 'error');
-            return;
-        }
-        
-        const permission = await Notification.requestPermission();
-        if (permission === 'granted') {
-            localStorage.setItem('babycrafts_notifications', 'enabled');
-            UI.showToast('Notificaties ingeschakeld!', 'success');
-            this.renderCurrentPage();
-            
-            // Send a test notification
-            this.sendTestNotification();
-        } else {
-            localStorage.setItem('babycrafts_notifications', 'denied');
-            UI.showToast('Notificaties geweigerd', 'info');
-        }
-    },
-    
-    // Get notification status text
-    getNotificationStatus() {
-        if (!('Notification' in window)) {
-            return 'Niet ondersteund';
-        }
-        const status = localStorage.getItem('babycrafts_notifications');
-        if (Notification.permission === 'granted' && status === 'enabled') {
-            return 'Ingeschakeld';
-        } else if (Notification.permission === 'denied') {
-            return 'Geweigerd';
-        }
-        return 'Uitgeschakeld';
-    },
-    
-    // Send test notification
-    sendTestNotification() {
-        if (Notification.permission === 'granted') {
-            new Notification('Babycrafts', {
-                body: '📱 Dagelijkse notificaties zijn nu actief!',
-                icon: 'https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png',
-                badge: 'https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png'
-            });
-        }
-    },
-    
-    // Check for daily highlights and send notification
-    checkDailyHighlights() {
-        const lastCheck = localStorage.getItem('babycrafts_last_notification');
-        const today = new Date().toDateString();
-        
-        // Only send once per day
-        if (lastCheck === today) {
-            return;
-        }
-        
-        const notifications = localStorage.getItem('babycrafts_notifications');
-        if (notifications !== 'enabled' || Notification.permission !== 'granted') {
-            return;
-        }
-        
-        // Wait for data to be loaded
-        setTimeout(() => {
-            this.sendDailyHighlightNotification();
-        }, 2000);
-    },
-    
-    // Send daily highlight notification
-    sendDailyHighlightNotification() {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        
-        // Get urgent items
-        const urgentOrders = OrdersModule.orders?.filter(o => {
-            if (!o.deadline || o.huidige_fase >= 12) return false;
-            const deadline = new Date(o.deadline);
-            const diffDays = Math.ceil((deadline - today) / (1000 * 60 * 60 * 24));
-            return diffDays <= 2 && diffDays >= 0;
-        }) || [];
-        
-        const overdueOrders = OrdersModule.orders?.filter(o => {
-            if (!o.deadline || o.huidige_fase >= 12) return false;
-            return new Date(o.deadline) < today;
-        }) || [];
-        
-        const openTodos = TodosModule.todos?.filter(t => t.status !== 'done') || [];
-        
-        // Build notification message
-        let body = '';
-        const items = [];
-        
-        if (overdueOrders.length > 0) {
-            items.push(`⚠️ ${overdueOrders.length} vertraagde order(s)`);
-        }
-        if (urgentOrders.length > 0) {
-            items.push(`⏰ ${urgentOrders.length} order(s) met deadline vandaag/morgen`);
-        }
-        if (openTodos.length > 0) {
-            items.push(`📝 ${openTodos.length} openstaande ta(a)k(en)`);
-        }
-        
-        if (items.length === 0) {
-            body = '✅ Geen urgente items voor vandaag!';
-        } else {
-            body = items.join('\n');
-        }
-        
-        // Send notification
-        new Notification('📊 Babycrafts - Dagelijkse Highlights', {
-            body: body,
-            icon: 'https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png',
-            badge: 'https://static.wixstatic.com/media/067fe5_b42b4a03e7b24bb2a401f6d9e8df9284~mv2.png',
-            tag: 'daily-highlights',
-            requireInteraction: true
-        });
-        
-        // Mark as sent
-        localStorage.setItem('babycrafts_last_notification', new Date().toDateString());
-    },
-    
-    // Schedule daily check
-    scheduleDailyCheck() {
-        // Check every hour if it's time for a new notification
-        setInterval(() => {
-            const now = new Date();
-            // Send at 9 AM
-            if (now.getHours() === 9) {
-                this.checkDailyHighlights();
-            }
-        }, 60 * 60 * 1000); // Every hour
-    },
-    
-    // Toggle menu
-    toggleMenu() {
-        const sideMenu = document.getElementById('sideMenu');
-        const menuOverlay = document.getElementById('menuOverlay');
-        sideMenu.classList.toggle('open');
-        menuOverlay.classList.toggle('visible');
-    },
-    
-    // Show AI Assistant
     showAIAssistant() {
         const stats = OrdersModule.getDashboardStats();
-        const openTodos = TodosModule.todos?.filter(t => t.status !== 'done') || [];
-        const delayed = OrdersModule.orders?.filter(o => {
-            if (!o.deadline || o.huidige_fase >= 12 || o.status === 'deleted') return false;
-            return new Date(o.deadline) < new Date();
-        }) || [];
+        const open  = TodosModule.getOpenCount();
+        const today = new Date(); today.setHours(0,0,0,0);
+        const delayed = OrdersModule.getAll().filter(o => o.deadline && o.huidige_fase < 12 && new Date(o.deadline) < today);
 
         UI.showBottomSheet({
             title: '🤖 Atelier Assistent',
             content: `
-                <div class="space-y-4">
-                    <div class="p-4 bg-purple-50 rounded-2xl border border-purple-100">
-                        <p class="font-semibold text-purple-800 mb-1">Overzicht vandaag</p>
-                        <ul class="text-sm text-purple-700 space-y-1">
-                            <li>• ${stats.active} actieve orders in productie</li>
-                            ${delayed.length > 0 ? `<li class="text-red-600 font-medium">• ⚠️ ${delayed.length} order(s) hebben deadline overschreden</li>` : '<li>• Geen vertraagde orders</li>'}
-                            <li>• ${openTodos.length} openstaande taken</li>
-                            <li>• ${stats.completed} orders afgerond totaal</li>
-                        </ul>
-                    </div>
-
-                    ${delayed.length > 0 ? `
-                        <div class="p-4 bg-red-50 rounded-xl border border-red-100">
-                            <p class="font-semibold text-red-700 mb-2">Vertraagde orders</p>
-                            ${delayed.slice(0, 3).map(o => `
-                                <div class="flex items-center justify-between py-2 border-b border-red-100 last:border-0">
-                                    <div>
-                                        <p class="text-sm font-medium text-gray-800">${Utils.escapeHtml(o.klant_naam)}</p>
-                                        <p class="text-xs text-gray-500">${o.order_id}</p>
-                                    </div>
-                                    <span class="text-xs text-red-600">${Utils.formatDate(o.deadline)}</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : ''}
-
-                    <div class="p-4 bg-gray-50 rounded-xl">
-                        <p class="font-semibold text-gray-700 mb-2">Snelle acties</p>
-                        <div class="grid grid-cols-2 gap-2">
-                            <button onclick="UI.closeBottomSheet(); App.navigate('orders')"
-                                    class="py-2.5 bg-blue-500 text-white rounded-xl text-sm font-medium">
-                                Alle Orders
-                            </button>
-                            <button onclick="UI.closeBottomSheet(); App.navigate('todos')"
-                                    class="py-2.5 bg-amber-500 text-white rounded-xl text-sm font-medium">
-                                Taken
-                            </button>
-                            <button onclick="UI.closeBottomSheet(); App.showDelayedOrders()"
-                                    class="py-2.5 bg-red-500 text-white rounded-xl text-sm font-medium">
-                                Vertraagd
-                            </button>
-                            <button onclick="UI.closeBottomSheet(); App.navigate('schema')"
-                                    class="py-2.5 bg-green-500 text-white rounded-xl text-sm font-medium">
-                                Schema
-                            </button>
-                        </div>
-                    </div>
+            <div class="space-y-4">
+                <div class="p-4 bg-purple-50 rounded-2xl border border-purple-100">
+                    <p class="font-semibold text-purple-800 mb-2">Overzicht vandaag</p>
+                    <ul class="text-sm text-purple-700 space-y-1">
+                        <li>• ${stats.active} actieve orders</li>
+                        ${delayed.length ? `<li class="text-red-600 font-medium">• ⚠️ ${delayed.length} order(s) met overschreden deadline</li>` : '<li>• Geen vertraagde orders ✓</li>'}
+                        <li>• ${open} openstaande taken</li>
+                        <li>• ${stats.completed} orders totaal afgerond</li>
+                    </ul>
                 </div>
-            `
-        });
-    },
-
-    // Render analytics page
-    renderAnalyticsPage(container) {
-        const titles = { 'analytics': 'Analytics' };
-        document.getElementById('pageTitle').textContent = 'Analytics';
-
-        const allOrders = OrdersModule.orders.filter(o => o.status !== 'deleted');
-        const completed = allOrders.filter(o => o.huidige_fase === 12);
-        const active = allOrders.filter(o => o.huidige_fase < 12);
-
-        // Orders per collectie
-        const perCollectie = {};
-        allOrders.forEach(o => {
-            perCollectie[o.collectie] = (perCollectie[o.collectie] || 0) + 1;
-        });
-        const sortedCollecties = Object.entries(perCollectie).sort((a, b) => b[1] - a[1]);
-
-        // Orders per fase
-        const perFase = {};
-        active.forEach(o => {
-            const name = I18n.getFaseName(o.huidige_fase);
-            perFase[name] = (perFase[name] || 0) + 1;
-        });
-        const sortedFases = Object.entries(perFase).sort((a, b) => b[1] - a[1]);
-
-        // Monthly completed orders (last 6 months)
-        const monthlyData = {};
-        const now = new Date();
-        for (let i = 5; i >= 0; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const key = d.toLocaleString('nl', { month: 'short', year: '2-digit' });
-            monthlyData[key] = 0;
-        }
-        completed.forEach(o => {
-            const d = new Date(o.updated_at || o.created_at);
-            const key = d.toLocaleString('nl', { month: 'short', year: '2-digit' });
-            if (monthlyData[key] !== undefined) monthlyData[key]++;
-        });
-
-        const maxMonthly = Math.max(...Object.values(monthlyData), 1);
-
-        container.innerHTML = `
-            <div class="page-header">
-                <h1 class="page-title">Analytics</h1>
-                <p class="page-subtitle">Productie statistieken</p>
-            </div>
-
-            <!-- Summary stats -->
-            <div class="stats-grid mb-4">
-                <div class="stat-card stat-card-blue">
-                    <span class="stat-label">Totaal orders</span>
-                    <div class="stat-value">${allOrders.length}</div>
-                </div>
-                <div class="stat-card stat-card-green">
-                    <span class="stat-label">Afgerond</span>
-                    <div class="stat-value">${completed.length}</div>
-                </div>
-                <div class="stat-card stat-card-orange">
-                    <span class="stat-label">Actief</span>
-                    <div class="stat-value">${active.length}</div>
-                </div>
-                <div class="stat-card stat-card-red">
-                    <span class="stat-label">% Afgerond</span>
-                    <div class="stat-value">${allOrders.length ? Math.round(completed.length / allOrders.length * 100) : 0}%</div>
-                </div>
-            </div>
-
-            <!-- Monthly chart -->
-            <div class="content-card mb-4">
-                <h3 class="card-title mb-4">Afgerond per maand</h3>
-                <div class="flex items-end gap-2 h-32">
-                    ${Object.entries(monthlyData).map(([month, count]) => `
-                        <div class="flex-1 flex flex-col items-center gap-1">
-                            <span class="text-xs font-medium text-gray-700">${count}</span>
-                            <div class="w-full bg-amber-500 rounded-t-lg transition-all"
-                                 style="height: ${Math.max(4, Math.round(count / maxMonthly * 96))}px"></div>
-                            <span class="text-xs text-gray-400 whitespace-nowrap">${month}</span>
-                        </div>
-                    `).join('')}
-                </div>
-            </div>
-
-            <!-- Per collectie -->
-            <div class="content-card mb-4">
-                <h3 class="card-title mb-4">Orders per collectie</h3>
-                <div class="space-y-3">
-                    ${sortedCollecties.map(([name, count]) => `
+                ${delayed.length ? `
+                <div class="p-4 bg-red-50 rounded-xl border border-red-100">
+                    <p class="font-semibold text-red-700 mb-2">Vertraagde orders</p>
+                    ${delayed.slice(0,4).map(o => `
+                    <div class="flex items-center justify-between py-2 border-b border-red-100 last:border-0">
                         <div>
-                            <div class="flex items-center justify-between mb-1">
-                                <span class="text-sm font-medium text-gray-700">${Utils.escapeHtml(name)}</span>
-                                <span class="text-sm font-bold text-gray-900">${count}</span>
-                            </div>
-                            <div class="h-2 bg-gray-100 rounded-full">
-                                <div class="h-full bg-amber-500 rounded-full" style="width: ${Math.round(count / allOrders.length * 100)}%"></div>
-                            </div>
+                            <p class="text-sm font-medium">${Utils.escapeHtml(o.klant_naam)}</p>
+                            <p class="text-xs text-gray-500">${o.order_id}</p>
                         </div>
-                    `).join('')}
+                        <span class="text-xs text-red-600">${Utils.formatDate(o.deadline)}</span>
+                    </div>`).join('')}
+                </div>` : ''}
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="UI.closeBottomSheet();App.navigate('orders')" class="py-2.5 bg-blue-500 text-white rounded-xl text-sm font-medium">Alle Orders</button>
+                    <button onclick="UI.closeBottomSheet();App.navigate('todos')" class="py-2.5 bg-amber-500 text-white rounded-xl text-sm font-medium">Taken</button>
+                    <button onclick="UI.closeBottomSheet();App.showDelayedOrders()" class="py-2.5 bg-red-500 text-white rounded-xl text-sm font-medium">Vertraagd</button>
+                    <button onclick="UI.closeBottomSheet();App.navigate('schema')" class="py-2.5 bg-green-500 text-white rounded-xl text-sm font-medium">Schema</button>
                 </div>
-            </div>
-
-            <!-- Actieve orders per fase -->
-            ${sortedFases.length > 0 ? `
-                <div class="content-card">
-                    <h3 class="card-title mb-4">Actief per fase</h3>
-                    <div class="space-y-2">
-                        ${sortedFases.map(([fase, count]) => `
-                            <div class="flex items-center justify-between p-3 bg-gray-50 rounded-xl">
-                                <span class="text-sm text-gray-700">${fase}</span>
-                                <span class="text-sm font-bold text-gray-900 bg-white px-2 py-0.5 rounded-lg border">${count}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                </div>
-            ` : ''}
-        `;
-
-        if (typeof lucide !== 'undefined') {
-            lucide.createIcons({ nodes: [container] });
-        }
+            </div>`,
+        });
     },
-
-    // Close detail sheet
-    closeDetail() {
-        const sheet = document.getElementById('detailSheet');
-        if (sheet) {
-            sheet.classList.remove('active');
-        }
-    },
-    
-    // Close confirm modal
-    closeConfirmModal() {
-        const modal = document.getElementById('confirmModal');
-        if (modal) {
-            modal.classList.add('hidden');
-            modal.classList.remove('flex');
-        }
-    }
 };
 
-// Initialize app when DOM is ready
+// Boot
 document.addEventListener('DOMContentLoaded', () => {
+    if (typeof lucide !== 'undefined') lucide.createIcons();
     App.initialize();
 });

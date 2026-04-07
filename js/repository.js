@@ -1,690 +1,144 @@
 /**
- * REPOSITORY PATTERN - Data Access Layer
- * Centralized database operations with audit logging
+ * REPOSITORY - Babycrafts Data Access Layer
+ * All Supabase queries go through here.
  */
 
 const Repository = {
     supabase: null,
-    
-    /**
-     * Initialize repository
-     */
-    initialize(supabaseClient) {
-        this.supabase = supabaseClient;
+
+    initialize(client) {
+        this.supabase = client;
     },
 
-    /**
-     * Convert a user ID to a valid UUID or null.
-     * PIN-based auth generates IDs like 'local_admin_2911' which are NOT valid UUIDs.
-     * Supabase UUID columns reject non-UUID strings with error 22P02.
-     */
-    toUUID(userId) {
-        if (!userId) return null;
-        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-        return uuidRegex.test(userId) ? userId : null;
+    // Convert PIN-based user ID to null (UUID columns reject non-UUID strings)
+    toUUID(id) {
+        if (!id) return null;
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
     },
 
-    /**
-     * Generic error handler
-     */
-    handleError(error, operation) {
-        console.error(`Repository error [${operation}]:`, error);
-        
-        // Create user-friendly error message
-        let userMessage = 'Er is een fout opgetreden bij het opslaan van gegevens.';
-        
-        if (error.code === '22P02') {
-            userMessage = 'Ongeldig gegevensformaat. Controleer de ingevoerde waarden.';
-        } else if (error.code === '42501') {
-            userMessage = 'Geen toegang tot database. Controleer of je bent ingelogd met de juiste rechten.';
-        } else if (error.code === '23514') {
-            if (error.message?.includes('huidige_fase')) {
-                userMessage = 'Deze fase wordt niet ondersteund door de database. Neem contact op met de beheerder om fases 13-16 toe te voegen.';
-            } else {
-                userMessage = 'De ingevoerde waarde voldoet niet aan de database regels.';
-            }
-        } else if (error.code === '23505') {
-            userMessage = 'Dit record bestaat al.';
-        } else if (error.code === '23503') {
-            userMessage = 'Kan niet verwijderen omdat er gekoppelde gegevens zijn.';
-        }
-        
-        // Store error for UI display
-        window.lastRepositoryError = {
-            operation,
-            code: error.code,
-            message: userMessage,
-            raw: error.message
+    // Map Supabase error codes to friendly Dutch messages
+    friendlyError(err) {
+        if (!err) return 'Onbekende fout';
+        const map = {
+            '42501': 'Geen toegang tot database.',
+            '23514': err.message?.includes('huidige_fase')
+                ? 'Fase niet ondersteund in database.'
+                : 'Ongeldige waarde ingevoerd.',
+            '23505': 'Dit record bestaat al.',
+            '23503': 'Kan niet verwijderen: gekoppelde data aanwezig.',
+            '22P02': 'Ongeldig gegevensformaat.',
+            'PGRST116': 'Record niet gevonden.',
         };
-        
-        // Log to audit if available
-        if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-            Audit.log('error', 'repository', operation, { error: error.message, code: error.code });
-        }
-        
-        throw new Error(userMessage);
+        return map[err.code] || err.message || 'Fout bij opslaan.';
     },
 
-    // ==========================================
-    // ORDERS REPOSITORY
-    // ==========================================
-    
+    // ── ORDERS ─────────────────────────────────────────────────────────────
+
     orders: {
-        /**
-         * Get all orders (with optional filtering)
-         */
-        async getAll(options = {}) {
-            try {
-                let query = Repository.supabase
-                    .from('orders')
-                    .select('*');
-                
-                if (options.status) {
-                    query = query.eq('status', options.status);
-                }
-                
-                if (options.fase !== undefined) {
-                    query = query.eq('huidige_fase', options.fase);
-                }
-                
-                if (options.orderBy) {
-                    query = query.order(options.orderBy, { 
-                        ascending: options.ascending ?? false 
-                    });
-                } else {
-                    query = query.order('created_at', { ascending: false });
-                }
-                
-                const { data, error } = await query;
-                if (error) throw error;
-                return data || [];
-                
-            } catch (error) {
-                Repository.handleError(error, 'orders.getAll');
-            }
+        async getAll() {
+            const { data, error } = await Repository.supabase
+                .from('orders')
+                .select('*')
+                .order('created_at', { ascending: false });
+            if (error) throw new Error(Repository.friendlyError(error));
+            return data || [];
         },
 
-        /**
-         * Get active orders
-         */
-        async getActive() {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('orders')
-                    .select('*')
-                    .neq('status', 'deleted')
-                    .lt('huidige_fase', 12)
-                    .order('created_at', { ascending: false });
-                    
-                if (error) throw error;
-                return data || [];
-                
-            } catch (error) {
-                Repository.handleError(error, 'orders.getActive');
-            }
+        async create(orderData) {
+            const { data, error } = await Repository.supabase
+                .from('orders')
+                .insert([orderData])
+                .select()
+                .single();
+            if (error) throw new Error(Repository.friendlyError(error));
+            return data;
         },
 
-        /**
-         * Get order by ID
-         */
-        async getById(orderId) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('orders')
-                    .select('*')
-                    .eq('order_id', orderId)
-                    .single();
-                    
-                if (error) throw error;
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'orders.getById');
-            }
+        async update(orderId, updates) {
+            const { data, error } = await Repository.supabase
+                .from('orders')
+                .update({ ...updates, updated_at: new Date().toISOString() })
+                .eq('order_id', orderId)
+                .select()
+                .single();
+            if (error) throw new Error(Repository.friendlyError(error));
+            return data;
         },
 
-        /**
-         * Get order by public token
-         */
-        async getByToken(token) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('orders')
-                    .select('*')
-                    .eq('public_token', token)
-                    .single();
-                    
-                if (error) throw error;
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'orders.getByToken');
-            }
+        async delete(orderId) {
+            const { error } = await Repository.supabase
+                .from('orders')
+                .update({ status: 'deleted', deleted_at: new Date().toISOString() })
+                .eq('order_id', orderId);
+            if (error) throw new Error(Repository.friendlyError(error));
+            return true;
         },
-
-        /**
-         * Search orders
-         */
-        async search(query) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('orders')
-                    .select('*')
-                    .or(`order_id.ilike.%${query}%,klant_naam.ilike.%${query}%,klant_email.ilike.%${query}%`)
-                    .neq('status', 'deleted')
-                    .order('created_at', { ascending: false });
-                    
-                if (error) throw error;
-                return data || [];
-                
-            } catch (error) {
-                Repository.handleError(error, 'orders.search');
-            }
-        },
-
-        /**
-         * Create order
-         */
-        async create(orderData, userId) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('orders')
-                    .insert([{
-                        ...orderData,
-                        created_by: Repository.toUUID(userId),
-                        created_at: new Date().toISOString(),
-                        updated_at: new Date().toISOString()
-                    }])
-                    .select()
-                    .single();
-                    
-                if (error) {
-                    throw error;
-                }
-
-                // Audit log
-                if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-                    Audit.log('create', 'order', orderData.order_id, { 
-                        klant: orderData.klant_naam,
-                        collectie: orderData.collectie 
-                    });
-                }
-                
-                return data;
-                
-            } catch (error) {
-                console.error('Repository.orders.create catch:', error);
-                Repository.handleError(error, 'orders.create');
-                throw error; // Re-throw to propagate to caller
-            }
-        },
-
-        /**
-         * Update order
-         */
-        async update(orderId, updates, userId) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('orders')
-                    .update({
-                        ...updates,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('order_id', orderId)
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                
-                // Audit log
-                if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-                    Audit.log('update', 'order', orderId, { 
-                        fields: Object.keys(updates),
-                        by: userId 
-                    });
-                }
-                
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'orders.update');
-            }
-        },
-
-        /**
-         * Update fase
-         */
-        async updateFase(orderId, newFase, userId) {
-            try {
-                const updates = {
-                    huidige_fase: newFase,
-                    updated_at: new Date().toISOString()
-                };
-                
-                // Add special date fields based on fase
-                if (newFase === 10) {
-                    updates.verzenddatum = new Date().toISOString().split('T')[0];
-                    updates.track_trace_code = Utils.generateTrackTrace();
-                }
-                
-                if (newFase === 11) {
-                    updates.nazorg_start_datum = new Date().toISOString();
-                }
-                
-                if (newFase === 12) {
-                    updates.status = 'completed';
-                    updates.afgerond_datum = new Date().toISOString();
-                }
-                
-                if (newFase === 15) {
-                    updates.bronsgieterij_datum = new Date().toISOString();
-                }
-                
-                if (newFase === 16) {
-                    updates.terug_gieterij_datum = new Date().toISOString();
-                }
-                
-                const { data, error } = await Repository.supabase
-                    .from('orders')
-                    .update(updates)
-                    .eq('order_id', orderId)
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                
-                // Audit log
-                if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-                    Audit.log('faseChange', 'order', orderId, { 
-                        from: updates.huidige_fase,
-                        to: newFase,
-                        by: userId 
-                    });
-                }
-                
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'orders.updateFase');
-            }
-        },
-
-        /**
-         * Soft delete order
-         */
-        async delete(orderId, userId) {
-            try {
-                const { error } = await Repository.supabase
-                    .from('orders')
-                    .update({ 
-                        status: 'deleted',
-                        deleted_at: new Date().toISOString()
-                    })
-                    .eq('order_id', orderId);
-                    
-                if (error) throw error;
-                
-                // Audit log
-                if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-                    Audit.log('delete', 'order', orderId, { by: userId });
-                }
-                
-                return true;
-                
-            } catch (error) {
-                Repository.handleError(error, 'orders.delete');
-            }
-        }
     },
 
-    // ==========================================
-    // TODOS REPOSITORY
-    // ==========================================
-    
+    // ── TODOS ──────────────────────────────────────────────────────────────
+
     todos: {
         async getAll() {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('todos')
-                    .select('*')
-                    .order('created_at', { ascending: false });
-                    
-                if (error) throw error;
-                return data || [];
-                
-            } catch (error) {
-                Repository.handleError(error, 'todos.getAll');
-            }
+            const { data, error } = await Repository.supabase
+                .from('todos')
+                .select('*')
+                .order('created_at', { ascending: false });
+            if (error) throw new Error(Repository.friendlyError(error));
+            return data || [];
         },
 
-        async create(todoData, userId) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('todos')
-                    .insert([{
-                        ...todoData,
-                        created_by: userId,
-                        status: 'open',
-                        created_at: new Date().toISOString()
-                    }])
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'todos.create');
-            }
+        async create(todoData) {
+            const { data, error } = await Repository.supabase
+                .from('todos')
+                .insert([todoData])
+                .select()
+                .single();
+            if (error) throw new Error(Repository.friendlyError(error));
+            return data;
         },
 
-        async toggle(id, currentStatus, userId) {
-            try {
-                const newStatus = currentStatus === 'open' ? 'done' : 'open';
-                const updates = {
-                    status: newStatus,
-                    done_at: newStatus === 'done' ? new Date().toISOString() : null
-                };
-                
-                const { data, error } = await Repository.supabase
-                    .from('todos')
-                    .update(updates)
-                    .eq('id', id)
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'todos.toggle');
-            }
+        async update(id, updates) {
+            const { data, error } = await Repository.supabase
+                .from('todos')
+                .update(updates)
+                .eq('id', id)
+                .select()
+                .single();
+            if (error) throw new Error(Repository.friendlyError(error));
+            return data;
         },
 
         async delete(id) {
-            try {
-                const { error } = await Repository.supabase
-                    .from('todos')
-                    .delete()
-                    .eq('id', id);
-                    
-                if (error) throw error;
-                return true;
-                
-            } catch (error) {
-                Repository.handleError(error, 'todos.delete');
-            }
-        }
+            const { error } = await Repository.supabase
+                .from('todos')
+                .delete()
+                .eq('id', id);
+            if (error) throw new Error(Repository.friendlyError(error));
+            return true;
+        },
     },
 
-    // ==========================================
-    // TIME ENTRIES REPOSITORY
-    // ==========================================
-    
+    // ── TIME ENTRIES ───────────────────────────────────────────────────────
+
     timeEntries: {
-        async getAll(options = {}) {
-            try {
-                let query = Repository.supabase
-                    .from('time_entries')
-                    .select('*')
-                    .order('datum', { ascending: false });
-                
-                if (options.userId) {
-                    query = query.eq('user_id', options.userId);
-                }
-                
-                const { data, error } = await query;
-                if (error) throw error;
-                return data || [];
-                
-            } catch (error) {
-                Repository.handleError(error, 'timeEntries.getAll');
-            }
+        async getAll() {
+            // No join on auth.users — anon key cannot read that table
+            const { data, error } = await Repository.supabase
+                .from('time_entries')
+                .select('*')
+                .order('datum', { ascending: false });
+            if (error) throw new Error(Repository.friendlyError(error));
+            return data || [];
         },
 
-        async create(entryData, userId) {
-            try {
-                // Calculate total minutes
-                const startDate = new Date(`2000-01-01T${entryData.start_tijd}`);
-                const eindDate = new Date(`2000-01-01T${entryData.eind_tijd}`);
-                const diffMinutes = (eindDate - startDate) / (1000 * 60) - (entryData.pauze_minuten || 0);
-                
-                const { data, error } = await Repository.supabase
-                    .from('time_entries')
-                    .insert([{
-                        user_id: userId,
-                        medewerker_naam: entryData.medewerker_naam,
-                        datum: entryData.datum,
-                        start_tijd: entryData.start_tijd,
-                        eind_tijd: entryData.eind_tijd,
-                        pauze_minuten: entryData.pauze_minuten || 0,
-                        totaal_minuten: diffMinutes,
-                        opmerking: entryData.opmerking,
-                        status: 'pending'
-                    }])
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'timeEntries.create');
-            }
+        async create(entryData) {
+            const { data, error } = await Repository.supabase
+                .from('time_entries')
+                .insert([entryData])
+                .select()
+                .single();
+            if (error) throw new Error(Repository.friendlyError(error));
+            return data;
         },
-
-        async approve(id, approverId) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('time_entries')
-                    .update({
-                        status: 'approved',
-                        approved_by: approverId,
-                        approved_at: new Date().toISOString()
-                    })
-                    .eq('id', id)
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'timeEntries.approve');
-            }
-        },
-
-        async reject(id, approverId) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('time_entries')
-                    .update({
-                        status: 'rejected',
-                        approved_by: approverId,
-                        approved_at: new Date().toISOString()
-                    })
-                    .eq('id', id)
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'timeEntries.reject');
-            }
-        }
     },
-
-    // ==========================================
-    // PHOTOS REPOSITORY
-    // ==========================================
-    
-    photos: {
-        async getByOrderId(orderId, fase = null) {
-            try {
-                let query = Repository.supabase
-                    .from('order_photos')
-                    .select('*')
-                    .eq('order_id', orderId)
-                    .order('created_at', { ascending: true });
-                
-                if (fase !== null) {
-                    query = query.eq('fase', fase);
-                }
-                
-                const { data, error } = await query;
-                if (error) throw error;
-                return data || [];
-                
-            } catch (error) {
-                Repository.handleError(error, 'photos.getByOrderId');
-            }
-        },
-
-        async upload(file, orderId, photoType, fase, userId) {
-            try {
-                // Upload to storage
-                const timestamp = Date.now();
-                const fileExt = file.name.split('.').pop() || 'jpg';
-                const fileName = `${orderId}_${photoType}_${timestamp}.${fileExt}`;
-                
-                const { error: uploadError } = await Repository.supabase
-                    .storage
-                    .from(CONFIG.STORAGE_BUCKETS.PHOTOS)
-                    .upload(fileName, file, { 
-                        contentType: file.type,
-                        upsert: false
-                    });
-                    
-                if (uploadError) throw uploadError;
-                
-                // Get public URL
-                const { data: { publicUrl } } = Repository.supabase
-                    .storage
-                    .from(CONFIG.STORAGE_BUCKETS.PHOTOS)
-                    .getPublicUrl(fileName);
-                
-                // Save to database
-                const { data, error } = await Repository.supabase
-                    .from('order_photos')
-                    .insert([{
-                        order_id: orderId,
-                        fase: fase,
-                        photo_type: photoType,
-                        url: publicUrl,
-                        path: fileName,
-                        uploaded_by: userId,
-                        created_at: new Date().toISOString()
-                    }])
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                
-                // Audit log
-                if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-                    Audit.log('photoUpload', 'order', orderId, { 
-                        type: photoType,
-                        by: userId 
-                    });
-                }
-                
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'photos.upload');
-            }
-        },
-
-        async delete(photoId, filePath) {
-            try {
-                // Delete from storage
-                await Repository.supabase
-                    .storage
-                    .from(CONFIG.STORAGE_BUCKETS.PHOTOS)
-                    .remove([filePath]);
-                
-                // Delete from database
-                const { error } = await Repository.supabase
-                    .from('order_photos')
-                    .delete()
-                    .eq('id', photoId);
-                    
-                if (error) throw error;
-                return true;
-                
-            } catch (error) {
-                Repository.handleError(error, 'photos.delete');
-            }
-        }
-    },
-
-    // ==========================================
-    // FILES REPOSITORY (3D Scans)
-    // ==========================================
-    
-    files: {
-        async upload(file, orderId) {
-            try {
-                const fileExt = file.name.split('.').pop();
-                const fileName = `${Date.now()}_${orderId}.${fileExt}`;
-                
-                // Upload to storage
-                const { error: uploadError } = await Repository.supabase
-                    .storage
-                    .from(CONFIG.STORAGE_BUCKETS.SCANS)
-                    .upload(fileName, file);
-                    
-                if (uploadError) throw uploadError;
-                
-                // Get public URL
-                const { data: { publicUrl } } = Repository.supabase
-                    .storage
-                    .from(CONFIG.STORAGE_BUCKETS.SCANS)
-                    .getPublicUrl(fileName);
-                
-                return { url: publicUrl, path: fileName, name: file.name };
-                
-            } catch (error) {
-                Repository.handleError(error, 'files.upload');
-            }
-        },
-
-        async updateOrderFile(orderId, fileData, userId) {
-            try {
-                const { data, error } = await Repository.supabase
-                    .from('orders')
-                    .update({
-                        bestand_url: fileData.url,
-                        bestand_naam: fileData.name,
-                        bestand_path: fileData.path,
-                        updated_at: new Date().toISOString()
-                    })
-                    .eq('order_id', orderId)
-                    .select()
-                    .single();
-                    
-                if (error) throw error;
-                
-                // Audit log
-                if (CONFIG.FEATURES.AUDIT_LOGGING && window.Audit) {
-                    Audit.log('fileUpload', 'order', orderId, { 
-                        file: fileData.name,
-                        by: userId 
-                    });
-                }
-                
-                return data;
-                
-            } catch (error) {
-                Repository.handleError(error, 'files.updateOrderFile');
-            }
-        }
-    }
 };
-
-// Export
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = Repository;
-}

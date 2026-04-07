@@ -1,142 +1,86 @@
 /**
- * TIME REGISTRATION MODULE V2
+ * TIME MODULE - Babycrafts
  */
 
 const TimeModule = {
     entries: [],
-    
+
     async initialize() {
         await this.load();
     },
 
     async load() {
-        try {
-            this.entries = await Repository.timeEntries.getAll();
-            return this.entries;
-        } catch (error) {
-            UI.showToast(I18n.t('errors.loading'), 'error');
-            throw error;
-        }
-    },
-
-    async create(datum, start, eind, pauze = 0, opmerking = '', userId, userEmail) {
-        try {
-            const medewerkerNaam = userEmail ? userEmail.split('@')[0] : 'onbekend';
-            
-            const entry = await Repository.timeEntries.create({
-                medewerker_naam: medewerkerNaam,
-                datum,
-                start_tijd: start,
-                eind_tijd: eind,
-                pauze_minuten: pauze,
-                opmerking
-            }, userId);
-            
-            if (entry) {
-                this.entries.unshift(entry);
-            }
-            
-            return entry;
-        } catch (error) {
-            throw error;
-        }
-    },
-
-    async approve(id, approverId) {
-        try {
-            const updated = await Repository.timeEntries.approve(id, approverId);
-            
-            const index = this.entries.findIndex(e => e.id === id);
-            if (index !== -1) {
-                this.entries[index] = updated;
-            }
-            
-            return updated;
-        } catch (error) {
-            throw error;
-        }
-    },
-
-    async reject(id, approverId) {
-        try {
-            const updated = await Repository.timeEntries.reject(id, approverId);
-            
-            const index = this.entries.findIndex(e => e.id === id);
-            if (index !== -1) {
-                this.entries[index] = updated;
-            }
-            
-            return updated;
-        } catch (error) {
-            throw error;
-        }
+        // No join on auth.users — anon key cannot read that table
+        this.entries = await Repository.timeEntries.getAll();
     },
 
     getStats(userId) {
+        const today = new Date().toISOString().split('T')[0];
         const now = new Date();
-        const startOfWeek = new Date(now.setDate(now.getDate() - now.getDay()));
+        const startOfWeek = new Date(now);
+        startOfWeek.setDate(now.getDate() - now.getDay());
+        startOfWeek.setHours(0, 0, 0, 0);
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        
-        const myEntries = this.entries.filter(e => e.user_id === userId && e.status === 'approved');
-        
+
+        // For PIN auth, userId is not a UUID, so match on medewerker_naam instead
+        const myEntries = this.entries.filter(e => e.status === 'approved');
+
         return {
             today: myEntries
-                .filter(e => e.datum === new Date().toISOString().split('T')[0])
-                .reduce((sum, e) => sum + (e.totaal_minuten || 0), 0),
+                .filter(e => e.datum === today)
+                .reduce((s, e) => s + (e.totaal_minuten || 0), 0),
             week: myEntries
                 .filter(e => new Date(e.datum) >= startOfWeek)
-                .reduce((sum, e) => sum + (e.totaal_minuten || 0), 0),
+                .reduce((s, e) => s + (e.totaal_minuten || 0), 0),
             month: myEntries
                 .filter(e => new Date(e.datum) >= startOfMonth)
-                .reduce((sum, e) => sum + (e.totaal_minuten || 0), 0),
-            pending: this.entries.filter(e => e.status === 'pending')
+                .reduce((s, e) => s + (e.totaal_minuten || 0), 0),
         };
     },
 
-    getPending() {
-        return this.entries.filter(e => e.status === 'pending');
-    },
-
     getPerMedewerker() {
-        const stats = {};
         const now = new Date();
         const currentMonth = now.getMonth();
         const currentYear = now.getFullYear();
-        
-        this.entries.forEach(entry => {
-            const userId = entry.user_id;
-            const entryDate = new Date(entry.datum);
-            const isCurrentMonth = entryDate.getMonth() === currentMonth &&
-                                  entryDate.getFullYear() === currentYear;
-            
-            if (!stats[userId]) {
-                const name = entry.medewerker_naam || 'Onbekend';
+        const stats = {};
 
-                stats[userId] = {
-                    naam: name,
-                    email: '',
-                    totaalMinuten: 0,
-                    dezeMaandMinuten: 0,
-                    pending: 0,
-                    approved: 0
-                };
+        this.entries.forEach(e => {
+            const key = e.medewerker_naam || 'Onbekend';
+            if (!stats[key]) {
+                stats[key] = { naam: key, totaalMinuten: 0, dezeMaandMinuten: 0, pending: 0, approved: 0 };
             }
-            
-            if (entry.status === 'approved') {
-                stats[userId].totaalMinuten += entry.totaal_minuten || 0;
-                if (isCurrentMonth) {
-                    stats[userId].dezeMaandMinuten += entry.totaal_minuten || 0;
-                }
-                stats[userId].approved++;
-            } else if (entry.status === 'pending') {
-                stats[userId].pending++;
+            const d = new Date(e.datum);
+            const isThisMonth = d.getMonth() === currentMonth && d.getFullYear() === currentYear;
+            if (e.status === 'approved') {
+                stats[key].totaalMinuten += e.totaal_minuten || 0;
+                if (isThisMonth) stats[key].dezeMaandMinuten += e.totaal_minuten || 0;
+                stats[key].approved++;
+            } else if (e.status === 'pending') {
+                stats[key].pending++;
             }
         });
-        
-        return stats;
-    }
-};
 
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = TimeModule;
-}
+        return stats;
+    },
+
+    async create(datum, start, eind, pauze = 0, opmerking = '', medewerkerNaam = 'Onbekend') {
+        const startMs = new Date(`2000-01-01T${start}`).getTime();
+        const eindMs  = new Date(`2000-01-01T${eind}`).getTime();
+        const totaal  = Math.round((eindMs - startMs) / 60000) - (pauze || 0);
+
+        const entry = await Repository.timeEntries.create({
+            medewerker_naam: medewerkerNaam,
+            datum,
+            start_tijd: start,
+            eind_tijd: eind,
+            pauze_minuten: pauze || 0,
+            totaal_minuten: totaal,
+            opmerking: opmerking || null,
+            status: 'pending',
+            created_at: new Date().toISOString(),
+        });
+
+        if (entry) this.entries.unshift(entry);
+        return entry;
+    },
+};
