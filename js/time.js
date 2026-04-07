@@ -110,13 +110,11 @@ const TimeModule = {
                                   entryDate.getFullYear() === currentYear;
             
             if (!stats[userId]) {
-                const email = entry.users?.email || '';
-                const meta = entry.users?.raw_user_meta_data || {};
-                const name = meta.full_name || meta.name || email.split('@')[0] || 'Onbekend';
-                
+                const name = entry.medewerker_naam || 'Onbekend';
+
                 stats[userId] = {
                     naam: name,
-                    email,
+                    email: '',
                     totaalMinuten: 0,
                     dezeMaandMinuten: 0,
                     pending: 0,

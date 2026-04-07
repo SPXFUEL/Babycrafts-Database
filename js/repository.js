@@ -426,7 +426,7 @@ const Repository = {
             try {
                 let query = Repository.supabase
                     .from('time_entries')
-                    .select('*, users:user_id (email, raw_user_meta_data)')
+                    .select('*')
                     .order('datum', { ascending: false });
                 
                 if (options.userId) {
