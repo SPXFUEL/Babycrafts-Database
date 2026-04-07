@@ -123,6 +123,7 @@ const OrdersModule = {
             collectie: formData.collectie,
             kleur_afwerking: (formData.kleur_afwerking || '').trim() || null,
             sokkel: formData.sokkel || 'Zonder',
+            sokkel_details: (formData.sokkel_details || '').trim() || null,
             extra_notities: (formData.extra_notities || '').trim() || null,
             deadline: formData.deadline || null,
         };

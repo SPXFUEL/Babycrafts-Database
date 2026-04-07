@@ -341,6 +341,9 @@ const App = {
     showNewOrderForm() {
         // Reset the static HTML form (index.html → #newOrderSheet → #newOrderForm)
         document.getElementById('newOrderForm')?.reset();
+        // Hide sokkel details field on reset
+        const sokkelWrap = document.getElementById('sokkelDetailsWrap');
+        if (sokkelWrap) sokkelWrap.style.display = 'none';
         // Clear any previously stored deadline
         const scanInput = document.getElementById('scanDatumInputHtml');
         if (scanInput) delete scanInput.dataset.deadline;
@@ -467,11 +470,12 @@ const App = {
                             <input name="hoogte_cm"      value="${order.hoogte_cm||20}"              placeholder="Hoogte cm"  class="form-input" type="number">
                             <input name="kleur_afwerking" value="${Utils.escapeHtml(order.kleur_afwerking||'')}" placeholder="Kleur"     class="form-input">
                         </div>
-                        <select name="sokkel" class="form-select">
+                        <select name="sokkel" class="form-select" onchange="this.nextElementSibling.style.display=this.value&&this.value!=='Zonder'?'block':'none'">
                             <option value="Zonder"    ${order.sokkel==='Zonder'?'selected':''}>Zonder sokkel</option>
                             <option value="Met"       ${order.sokkel==='Met'?'selected':''}>Met sokkel</option>
                             <option value="Met én Vast" ${order.sokkel==='Met én Vast'?'selected':''}>Met én Vast</option>
                         </select>
+                        <input name="sokkel_details" value="${Utils.escapeHtml(order.sokkel_details||'')}" placeholder="Omschrijving sokkel" class="form-input" style="display:${order.sokkel&&order.sokkel!=='Zonder'?'block':'none'}">
                         <input name="deadline" value="${order.deadline||''}" type="date" class="form-input">
                         <textarea name="extra_notities" placeholder="Notities" rows="3" class="form-input">${Utils.escapeHtml(order.extra_notities||'')}</textarea>
                     </div>
@@ -1099,7 +1103,11 @@ const App = {
                 <div class="grid grid-cols-2 gap-2">
                     <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400 mb-0.5">Collectie</p><p class="font-semibold text-sm">${Utils.escapeHtml(order.collectie)}</p></div>
                     <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400 mb-0.5">Hoogte</p><p class="font-semibold text-sm">${order.hoogte_cm} cm</p></div>
-                    <div class="bg-gray-50 rounded-xl p-3"><p class="text-xs text-gray-400 mb-0.5">Sokkel</p><p class="font-semibold text-sm">${order.sokkel||'Zonder'}</p></div>
+                    <div class="bg-gray-50 rounded-xl p-3">
+                        <p class="text-xs text-gray-400 mb-0.5">Sokkel</p>
+                        <p class="font-semibold text-sm">${order.sokkel||'Zonder'}</p>
+                        ${order.sokkel_details ? `<p class="text-xs text-gray-500 mt-0.5">${Utils.escapeHtml(order.sokkel_details)}</p>` : ''}
+                    </div>
                     <div class="bg-gray-50 rounded-xl p-3 ${ds?.class||''}">
                         <p class="text-xs text-gray-400 mb-0.5">Deadline</p>
                         <p class="font-semibold text-sm">${Utils.formatDate(order.deadline)}</p>
@@ -1173,7 +1181,7 @@ const App = {
                 <div class="bg-gray-50 rounded-xl p-4 grid grid-cols-2 gap-3 text-sm">
                     <div><span class="text-gray-400">Collectie</span><p class="font-medium">${Utils.escapeHtml(order.collectie)}</p></div>
                     <div><span class="text-gray-400">Hoogte</span><p class="font-medium">${order.hoogte_cm} cm</p></div>
-                    <div><span class="text-gray-400">Sokkel</span><p class="font-medium">${order.sokkel||'Zonder'}</p></div>
+                    <div><span class="text-gray-400">Sokkel</span><p class="font-medium">${order.sokkel||'Zonder'}${order.sokkel_details?` — ${Utils.escapeHtml(order.sokkel_details)}`:''}</p></div>
                     <div><span class="text-gray-400">Kleur</span><p class="font-medium">${order.kleur_afwerking||'Standaard'}</p></div>
                 </div>
                 ${wa ? `<a href="${wa}" target="_blank" class="flex items-center justify-center gap-2 w-full py-3 bg-green-500 text-white rounded-xl font-medium"><i data-lucide="message-circle" class="w-5 h-5"></i>WhatsApp Sturen</a>` : ''}

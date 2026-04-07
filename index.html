@@ -230,7 +230,7 @@
     </div>
 
     <!-- SIDE MENU -->
-    <div id="menuOverlay" class="menu-overlay" onclick="App.toggleMenu()"></div>
+    <div id="menuOverlay" class="menu-overlay"></div>
     <div id="sideMenu" class="side-menu">
         <div class="safe-top bg-gradient-to-br from-primary-500 to-primary-600 p-6 text-white">
             <div class="flex items-center gap-4">
@@ -338,12 +338,15 @@
                         <input type="number" name="hoogte_cm" placeholder="Hoogte cm *" min="14" max="100" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
                         <input type="text" name="kleur_afwerking" placeholder="Kleur afwerking" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
                     </div>
-                    <select name="sokkel" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    <select name="sokkel" id="sokkelSelect" required class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500" onchange="document.getElementById('sokkelDetailsWrap').style.display=this.value&&this.value!=='Zonder'?'block':'none'">
                         <option value="">Sokkel *</option>
                         <option value="Met">Met</option>
                         <option value="Zonder">Zonder</option>
                         <option value="Met én Vast">Met én Vast</option>
                     </select>
+                    <div id="sokkelDetailsWrap" style="display:none">
+                        <input type="text" name="sokkel_details" placeholder="Omschrijving sokkel (bijv. marmeren voet, zwart graniet...)" class="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500">
+                    </div>
                 </div>
                 
                 <!-- Planning -->
