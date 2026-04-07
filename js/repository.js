@@ -14,6 +14,17 @@ const Repository = {
     },
 
     /**
+     * Convert a user ID to a valid UUID or null.
+     * PIN-based auth generates IDs like 'local_admin_2911' which are NOT valid UUIDs.
+     * Supabase UUID columns reject non-UUID strings with error 22P02.
+     */
+    toUUID(userId) {
+        if (!userId) return null;
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        return uuidRegex.test(userId) ? userId : null;
+    },
+
+    /**
      * Generic error handler
      */
     handleError(error, operation) {
@@ -22,7 +33,9 @@ const Repository = {
         // Create user-friendly error message
         let userMessage = 'Er is een fout opgetreden bij het opslaan van gegevens.';
         
-        if (error.code === '42501') {
+        if (error.code === '22P02') {
+            userMessage = 'Ongeldig gegevensformaat. Controleer de ingevoerde waarden.';
+        } else if (error.code === '42501') {
             userMessage = 'Geen toegang tot database. Controleer of je bent ingelogd met de juiste rechten.';
         } else if (error.code === '23514') {
             if (error.message?.includes('huidige_fase')) {
@@ -178,7 +191,7 @@ const Repository = {
                     .from('orders')
                     .insert([{
                         ...orderData,
-                        created_by: userId,
+                        created_by: Repository.toUUID(userId),
                         created_at: new Date().toISOString(),
                         updated_at: new Date().toISOString()
                     }])

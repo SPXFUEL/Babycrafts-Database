@@ -148,8 +148,8 @@ const OrdersModule = {
                 toestemming_delen: formData.toestemming_delen === 'on' || formData.toestemming_delen === true,
                 workflow: workflow,
                 deadline: formData.deadline || null,
-                verantwoordelijke_user: userId,
-                created_by: userId,
+                verantwoordelijke_user: Repository.toUUID(userId),
+                created_by: Repository.toUUID(userId),
                 status: 'active',
                 public_token: Utils.generatePublicToken()
             };

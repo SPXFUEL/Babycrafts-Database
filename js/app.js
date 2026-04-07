@@ -30,16 +30,16 @@ const App = {
         // Initialize modules
         Repository.initialize(this.supabase);
         Audit.initialize();
-        
-        // Initialize OrdersModule (important!)
+
+        // Initialize data modules — errors are caught so checkAuth() always runs
         if (OrdersModule) {
-            await OrdersModule.initialize();
+            try { await OrdersModule.initialize(); } catch (_) {}
         }
         if (TodosModule) {
-            await TodosModule.initialize();
+            try { await TodosModule.initialize(); } catch (_) {}
         }
 
-        // Check authentication
+        // Check authentication (always reached)
         await this.checkAuth();
 
         // Setup event listeners
